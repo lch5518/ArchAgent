@@ -79,6 +79,97 @@ export interface ThermalAnalysis {
   recommendations: string[];
 }
 
+function normalizeWheelchairAnalysis(input: unknown): WheelchairAnalysis {
+  const data = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const floorsRaw = Array.isArray(data.floor_analysis) ? data.floor_analysis : [];
+  const floor_analysis = floorsRaw.map((item, idx) => {
+    const floor = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    const entry = (floor.entry_access && typeof floor.entry_access === 'object' ? floor.entry_access : {}) as Record<string, unknown>;
+    const path = (floor.path_dimensions && typeof floor.path_dimensions === 'object' ? floor.path_dimensions : {}) as Record<string, unknown>;
+    const slope = (floor.slope_and_steps && typeof floor.slope_and_steps === 'object' ? floor.slope_and_steps : {}) as Record<string, unknown>;
+    const disabled = (floor.disabled_facilities && typeof floor.disabled_facilities === 'object' ? floor.disabled_facilities : {}) as Record<string, unknown>;
+
+    return {
+      floor: typeof floor.floor === 'string' ? floor.floor : `${idx + 1}층`,
+      entry_access: {
+        location: typeof entry.location === 'string' ? entry.location : '확인 필요',
+        elevator_exists: typeof entry.elevator_exists === 'boolean' ? entry.elevator_exists : false,
+        description: typeof entry.description === 'string' ? entry.description : '상세 설명 없음',
+      },
+      path_dimensions: {
+        door_width_ok: typeof path.door_width_ok === 'boolean' ? path.door_width_ok : false,
+        turning_space_ok: typeof path.turning_space_ok === 'boolean' ? path.turning_space_ok : false,
+        details: typeof path.details === 'string' ? path.details : '상세 설명 없음',
+      },
+      slope_and_steps: {
+        ramp_found: typeof slope.ramp_found === 'boolean' ? slope.ramp_found : false,
+        steps_identified: typeof slope.steps_identified === 'string' ? slope.steps_identified : '상세 설명 없음',
+      },
+      disabled_facilities: {
+        accessible_toilet: typeof disabled.accessible_toilet === 'boolean' ? disabled.accessible_toilet : false,
+        details: typeof disabled.details === 'string' ? disabled.details : '상세 설명 없음',
+      },
+      compliance_level:
+        floor.compliance_level === 'High' || floor.compliance_level === 'Medium' || floor.compliance_level === 'Low'
+          ? floor.compliance_level
+          : 'Medium',
+    };
+  });
+
+  return {
+    floor_analysis,
+    summary_recommendation:
+      typeof data.summary_recommendation === 'string'
+        ? data.summary_recommendation
+        : '요약 권장 사항이 없습니다.',
+  };
+}
+
+function normalizeThermalAnalysis(input: unknown): ThermalAnalysis {
+  const data = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const sunlight = (data.sunlight_exposure && typeof data.sunlight_exposure === 'object'
+    ? data.sunlight_exposure
+    : {}) as Record<string, unknown>;
+  const thermal = (data.thermal_efficiency && typeof data.thermal_efficiency === 'object'
+    ? data.thermal_efficiency
+    : {}) as Record<string, unknown>;
+  const estimated = (data.estimated_cost_impact && typeof data.estimated_cost_impact === 'object'
+    ? data.estimated_cost_impact
+    : {}) as Record<string, unknown>;
+  const windowsRaw = Array.isArray(data.window_analysis) ? data.window_analysis : [];
+  const recommendationsRaw = Array.isArray(data.recommendations) ? data.recommendations : [];
+
+  return {
+    sunlight_exposure: {
+      morning: typeof sunlight.morning === 'string' ? sunlight.morning : '정보 없음',
+      afternoon: typeof sunlight.afternoon === 'string' ? sunlight.afternoon : '정보 없음',
+      overall_rating: typeof sunlight.overall_rating === 'string' ? sunlight.overall_rating : '정보 없음',
+    },
+    thermal_efficiency: {
+      summer_heat_gain: typeof thermal.summer_heat_gain === 'string' ? thermal.summer_heat_gain : '정보 없음',
+      winter_heat_loss: typeof thermal.winter_heat_loss === 'string' ? thermal.winter_heat_loss : '정보 없음',
+      details: typeof thermal.details === 'string' ? thermal.details : '세부 정보 없음',
+    },
+    window_analysis: windowsRaw.map((item, idx) => {
+      const win = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+      return {
+        location: typeof win.location === 'string' ? win.location : `창 ${idx + 1}`,
+        size_estimate: typeof win.size_estimate === 'string' ? win.size_estimate : '정보 없음',
+        orientation: typeof win.orientation === 'string' ? win.orientation : '정보 없음',
+        impact: typeof win.impact === 'string' ? win.impact : '정보 없음',
+      };
+    }),
+    estimated_cost_impact: {
+      summer_cooling: typeof estimated.summer_cooling === 'string' ? estimated.summer_cooling : '정보 없음',
+      winter_heating: typeof estimated.winter_heating === 'string' ? estimated.winter_heating : '정보 없음',
+    },
+    recommendations: recommendationsRaw
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean),
+  };
+}
+
 export interface GeneralAnalysis {
   project_type: string;
   summary: string;
@@ -210,14 +301,16 @@ export async function checkWheelchairAccessibility(
   imageData: string,
   mimeType: string,
 ): Promise<WheelchairAnalysis> {
-  return requestJson<WheelchairAnalysis>('/api/wheelchair', { imageData, mimeType });
+  const result = await requestJson<unknown>('/api/wheelchair', { imageData, mimeType });
+  return normalizeWheelchairAnalysis(result);
 }
 
 export async function checkThermalEfficiency(
   imageData: string,
   mimeType: string,
 ): Promise<ThermalAnalysis> {
-  return requestJson<ThermalAnalysis>('/api/thermal', { imageData, mimeType });
+  const result = await requestJson<unknown>('/api/thermal', { imageData, mimeType });
+  return normalizeThermalAnalysis(result);
 }
 
 export async function chatWithAgent(

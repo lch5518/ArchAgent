@@ -91,7 +91,7 @@ export default function App() {
     } catch (error) {
       console.error(error);
       setAnalysis(null);
-      setAnalysisError("분석 중 오류가 발생했습니다.");
+      setAnalysisError(error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.");
     } finally {
       setIsAnalyzing(false);
     }

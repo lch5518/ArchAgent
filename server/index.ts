@@ -460,8 +460,15 @@ app.get('*', (req, res, next) => {
     return next();
   }
 
+  // For missing static assets (js/css/png/etc), return 404 instead of index.html.
+  // This avoids MIME errors like "module script but server responded with text/html".
+  if (req.path.startsWith('/assets/') || path.extname(req.path)) {
+    return res.status(404).send('Not found');
+  }
+
   const indexPath = path.join(distDir, 'index.html');
   if (fs.existsSync(indexPath)) {
+    res.setHeader('Cache-Control', 'no-store');
     return res.sendFile(indexPath);
   }
 

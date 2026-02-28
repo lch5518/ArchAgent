@@ -18,31 +18,15 @@ import {
   ZoomOut,
   RotateCcw,
   Loader2,
-  Building2
+  Building2,
+  Sun,
+  Thermometer
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 import { analyzeDrawing, chatWithAgent, checkWheelchairAccessibility, checkThermalEfficiency, type WheelchairAnalysis, type ThermalAnalysis } from './services/gemini';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import {
-  Upload,
-  MessageSquare,
-  CheckCircle2,
-  AlertCircle,
-  Maximize2,
-  Send,
-  FileText,
-  Layout,
-  ChevronRight,
-  ZoomIn,
-  ZoomOut,
-  RotateCcw,
-  Loader2,
-  Building2,
-  Sun,
-  Thermometer
-} from 'lucide-react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

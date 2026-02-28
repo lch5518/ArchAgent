@@ -21,7 +21,7 @@ View your app in AI Studio: https://ai.studio/apps/a3de6108-f90d-4245-903d-294dd
 4. In another terminal, start frontend:
    `npm run dev`
 
-Frontend runs on `http://localhost:3000` and proxies `/api` to `http://localhost:8787`.
+Frontend runs on `http://localhost:8080` and proxies `/api` to `http://localhost:8787`.
 
 ## Run as a Single Server (Production Style)
 

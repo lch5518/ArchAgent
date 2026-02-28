@@ -22,9 +22,27 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
-import { analyzeDrawing, chatWithAgent, checkWheelchairAccessibility, type WheelchairAnalysis } from './services/gemini';
+import { analyzeDrawing, chatWithAgent, checkWheelchairAccessibility, checkThermalEfficiency, type WheelchairAnalysis, type ThermalAnalysis } from './services/gemini';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { 
+  Upload, 
+  MessageSquare, 
+  CheckCircle2, 
+  AlertCircle, 
+  Maximize2, 
+  Send, 
+  FileText, 
+  Layout, 
+  ChevronRight,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Loader2,
+  Building2,
+  Sun,
+  Thermometer
+} from 'lucide-react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -42,12 +60,13 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [wheelchairData, setWheelchairData] = useState<WheelchairAnalysis | null>(null);
+  const [thermalData, setThermalData] = useState<ThermalAnalysis | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
-  const [activeTab, setActiveTab] = useState<'general' | 'wheelchair'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'wheelchair' | 'thermal'>('general');
   
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -79,8 +98,8 @@ export default function App() {
       // If it's a URL, we need to fetch it and convert to base64 for Gemini
       if (imgData.startsWith('http')) {
         try {
-          const response = await window.fetch(imgData, { mode: 'cors' });
-          const blob = await response.blob();
+          const res = await fetch(imgData);
+          const blob = await res.blob();
           dataToAnalyze = await new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result as string);
@@ -89,8 +108,6 @@ export default function App() {
           });
         } catch (e) {
           console.error("Fetch failed, attempting to use image directly", e);
-          // Fallback: if fetch fails (CORS), we might just have to hope the model can't see it
-          // or handle it differently. But for Gemini we NEED the data.
           throw new Error("이미지를 가져오는데 실패했습니다. CORS 정책 때문일 수 있습니다. 직접 업로드해 주세요.");
         }
       }
@@ -118,8 +135,8 @@ export default function App() {
       let dataToAnalyze = image;
       if (image.startsWith('http')) {
         try {
-          const response = await window.fetch(image, { mode: 'cors' });
-          const blob = await response.blob();
+          const res = await fetch(image);
+          const blob = await res.blob();
           dataToAnalyze = await new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result as string);
@@ -198,6 +215,47 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-4">
+          <button 
+            onClick={async () => {
+              if (!image) return;
+              setIsAnalyzing(true);
+              setActiveTab('thermal');
+              try {
+                let dataToAnalyze = image;
+                if (image.startsWith('http')) {
+                  const res = await fetch(image);
+                  const blob = await res.blob();
+                  dataToAnalyze = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                  });
+                }
+                const data = await checkThermalEfficiency(dataToAnalyze, mimeType);
+                setThermalData(data);
+                setMessages(prev => [...prev, {
+                  role: 'agent',
+                  content: "일조량 및 열효율 분석이 완료되었습니다. 상세 데이터를 확인해 주세요.",
+                  timestamp: new Date()
+                }]);
+              } catch (error) {
+                console.error(error);
+                setMessages(prev => [...prev, {
+                  role: 'agent',
+                  content: "열효율 분석 중 오류가 발생했습니다.",
+                  timestamp: new Date()
+                }]);
+              } finally {
+                setIsAnalyzing(false);
+              }
+            }}
+            disabled={!image || isAnalyzing}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors disabled:opacity-50"
+          >
+            <Sun size={16} />
+            일조/열효율 체크
+          </button>
           <button 
             onClick={() => {
               // Using the user-provided sample floor plan
@@ -293,6 +351,15 @@ export default function App() {
               >
                 휠체어 접근성
               </button>
+              <button 
+                onClick={() => setActiveTab('thermal')}
+                className={cn(
+                  "px-6 py-3 text-xs font-bold uppercase tracking-widest transition-colors border-b-2",
+                  activeTab === 'thermal' ? "border-amber-600 text-amber-600 bg-white" : "border-transparent text-slate-400 hover:text-slate-600"
+                )}
+              >
+                일조/열효율
+              </button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
@@ -317,7 +384,7 @@ export default function App() {
                     </div>
                   )}
                 </div>
-              ) : (
+              ) : activeTab === 'wheelchair' ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -407,6 +474,118 @@ export default function App() {
                     <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
                       <CheckCircle2 size={24} className="mb-2 opacity-50" />
                       <p className="text-xs font-medium">상단의 '휠체어 접근성 체크' 버튼을 눌러 데이터를 추출하세요.</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-amber-600 flex items-center gap-2">
+                      <Sun size={16} />
+                      일조량 및 열효율 분석
+                    </h2>
+                    {isAnalyzing && activeTab === 'thermal' && <Loader2 size={14} className="animate-spin text-amber-600" />}
+                  </div>
+
+                  {thermalData ? (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center gap-1">
+                            <Sun size={12} className="text-amber-500" />
+                            Sunlight Exposure
+                          </h4>
+                          <div className="space-y-2">
+                            <div>
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">Morning</span>
+                              <p className="text-xs text-slate-900">{thermalData.sunlight_exposure.morning}</p>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">Afternoon</span>
+                              <p className="text-xs text-slate-900">{thermalData.sunlight_exposure.afternoon}</p>
+                            </div>
+                            <div className="pt-2 border-t border-slate-100">
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">Overall Rating</span>
+                              <p className="text-sm font-bold text-amber-600">{thermalData.sunlight_exposure.overall_rating}</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center gap-1">
+                            <Thermometer size={12} className="text-rose-500" />
+                            Thermal Efficiency
+                          </h4>
+                          <div className="space-y-2">
+                            <div>
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">Summer Heat Gain</span>
+                              <p className="text-xs text-slate-900">{thermalData.thermal_efficiency.summer_heat_gain}</p>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">Winter Heat Loss</span>
+                              <p className="text-xs text-slate-900">{thermalData.thermal_efficiency.winter_heat_loss}</p>
+                            </div>
+                            <div className="pt-2 border-t border-slate-100">
+                              <p className="text-[11px] text-slate-500 italic">{thermalData.thermal_efficiency.details}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                        <div className="bg-slate-900 px-4 py-2">
+                          <span className="text-white font-bold text-sm">Window Analysis</span>
+                        </div>
+                        <div className="p-0">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-slate-50 border-b border-slate-200">
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">Location</th>
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">Size</th>
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">Orientation</th>
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">Impact</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {thermalData.window_analysis.map((win, idx) => (
+                                <tr key={idx} className="border-b border-slate-100 last:border-0">
+                                  <td className="px-4 py-2 text-xs font-medium text-slate-900">{win.location}</td>
+                                  <td className="px-4 py-2 text-xs text-slate-600">{win.size_estimate}</td>
+                                  <td className="px-4 py-2 text-xs text-slate-600">{win.orientation}</td>
+                                  <td className="px-4 py-2 text-xs text-slate-600">{win.impact}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-rose-50 border border-rose-100 rounded-xl p-4">
+                          <h4 className="text-[10px] font-bold text-rose-700 uppercase mb-1">Summer Cooling Impact</h4>
+                          <p className="text-xs font-bold text-rose-900">{thermalData.estimated_cost_impact.summer_cooling}</p>
+                        </div>
+                        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                          <h4 className="text-[10px] font-bold text-blue-700 uppercase mb-1">Winter Heating Impact</h4>
+                          <p className="text-xs font-bold text-blue-900">{thermalData.estimated_cost_impact.winter_heating}</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
+                        <h4 className="text-[10px] font-bold text-amber-700 uppercase mb-2">Design Recommendations</h4>
+                        <ul className="space-y-1">
+                          {thermalData.recommendations.map((rec, idx) => (
+                            <li key={idx} className="text-xs text-amber-900 flex items-start gap-2">
+                              <span className="mt-1 w-1 h-1 rounded-full bg-amber-400 shrink-0" />
+                              {rec}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                      <Sun size={24} className="mb-2 opacity-50" />
+                      <p className="text-xs font-medium">상단의 '일조/열효율 체크' 버튼을 눌러 분석을 시작하세요.</p>
                     </div>
                   )}
                 </div>

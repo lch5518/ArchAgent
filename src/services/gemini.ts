@@ -3,6 +3,15 @@ import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 function getBase64Data(dataUrl: string): string {
+  if (!dataUrl) return "";
+  // If it's already base64 (no data: prefix)
+  if (!dataUrl.startsWith('data:')) {
+    return dataUrl;
+  }
+  const base64Index = dataUrl.indexOf('base64,');
+  if (base64Index !== -1) {
+    return dataUrl.substring(base64Index + 7);
+  }
   if (dataUrl.includes(',')) {
     return dataUrl.split(',')[1];
   }
@@ -19,6 +28,117 @@ export interface WheelchairAnalysis {
     compliance_level: string;
   }>;
   summary_recommendation: string;
+}
+
+export interface ThermalAnalysis {
+  sunlight_exposure: {
+    morning: string;
+    afternoon: string;
+    overall_rating: string;
+  };
+  thermal_efficiency: {
+    summer_heat_gain: string;
+    winter_heat_loss: string;
+    details: string;
+  };
+  window_analysis: Array<{
+    location: string;
+    size_estimate: string;
+    orientation: string;
+    impact: string;
+  }>;
+  estimated_cost_impact: {
+    summer_cooling: string;
+    winter_heating: string;
+  };
+  recommendations: string[];
+}
+
+export async function checkThermalEfficiency(imageData: string, mimeType: string): Promise<ThermalAnalysis> {
+  const model = "gemini-3.1-pro-preview";
+  
+  const prompt = `
+    [도면 분석 미션: 일조량 및 열효율 분석]
+    첨부된 도면을 분석하여 창문의 크기와 위치를 바탕으로 일조량과 열효율을 예측해줘.
+    여름철 냉방 부하와 겨울철 난방 효율에 대한 예측을 포함해야 해.
+    반드시 아래의 JSON 스키마 형식으로만 답변해줘.
+    
+    [분석 항목]
+    1. sunlight_exposure: 오전/오후 일조량 및 종합 등급
+    2. thermal_efficiency: 여름철 열 유입 및 겨울철 열 손실 분석
+    3. window_analysis: 주요 창문의 위치, 크기(추정), 방향 및 영향
+    4. estimated_cost_impact: 계절별 비용 영향 예측
+    5. recommendations: 개선을 위한 설계 제안
+  `;
+
+  const response: GenerateContentResponse = await ai.models.generateContent({
+    model,
+    contents: {
+      parts: [
+        { inlineData: { data: getBase64Data(imageData), mimeType } },
+        { text: prompt }
+      ]
+    },
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          sunlight_exposure: {
+            type: Type.OBJECT,
+            properties: {
+              morning: { type: Type.STRING },
+              afternoon: { type: Type.STRING },
+              overall_rating: { type: Type.STRING }
+            },
+            required: ["morning", "afternoon", "overall_rating"]
+          },
+          thermal_efficiency: {
+            type: Type.OBJECT,
+            properties: {
+              summer_heat_gain: { type: Type.STRING },
+              winter_heat_loss: { type: Type.STRING },
+              details: { type: Type.STRING }
+            },
+            required: ["summer_heat_gain", "winter_heat_loss", "details"]
+          },
+          window_analysis: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                location: { type: Type.STRING },
+                size_estimate: { type: Type.STRING },
+                orientation: { type: Type.STRING },
+                impact: { type: Type.STRING }
+              },
+              required: ["location", "size_estimate", "orientation", "impact"]
+            }
+          },
+          estimated_cost_impact: {
+            type: Type.OBJECT,
+            properties: {
+              summer_cooling: { type: Type.STRING },
+              winter_heating: { type: Type.STRING }
+            },
+            required: ["summer_cooling", "winter_heating"]
+          },
+          recommendations: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+          }
+        },
+        required: ["sunlight_exposure", "thermal_efficiency", "window_analysis", "estimated_cost_impact", "recommendations"]
+      }
+    }
+  });
+
+  try {
+    return JSON.parse(response.text || "{}");
+  } catch (e) {
+    console.error("Failed to parse JSON response", e);
+    throw new Error("Invalid JSON response from model");
+  }
 }
 
 export async function checkWheelchairAccessibility(imageData: string, mimeType: string): Promise<WheelchairAnalysis> {

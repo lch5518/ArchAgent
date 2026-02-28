@@ -5,11 +5,16 @@ function getApiUrl(path: string): string {
 }
 
 async function requestJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(getApiUrl(path), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(getApiUrl(path), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error('백엔드 서버에 연결할 수 없습니다. `npm run dev:server` 실행 상태를 확인해 주세요.');
+  }
 
   const raw = await response.text();
   let payload: unknown = {};
@@ -29,7 +34,9 @@ async function requestJson<T>(path: string, body: unknown): Promise<T> {
       'error' in payload &&
       typeof (payload as { error: unknown }).error === 'string'
         ? (payload as { error: string }).error
-        : `Request failed (${response.status})`;
+        : response.status >= 500
+          ? '서버 내부 오류가 발생했습니다. 백엔드 로그를 확인해 주세요.'
+          : `요청 실패 (${response.status})`;
     throw new Error(error);
   }
 

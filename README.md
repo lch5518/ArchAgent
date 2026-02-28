@@ -1,58 +1,33 @@
-# ArchAgent
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
 
-ArchAgent is an AI-powered Architectural Design Assistant that leverages the Gemini API to analyze architectural drawings and floor plans. Conceptually tied to **EquiSpace**, it automates the process of verifying accessibility compliance in designs, checking thermal efficiency, and provides an interactive chat interface for architectural consultation.
+# Run and deploy your AI Studio app
 
-## 🌟 Features
+This contains everything you need to run your app locally.
 
-- 🏢 **General Architecture Analysis**: Upload a floor plan to get a comprehensive AI analysis report, including project type, overall score, compliance level, key findings, legal checks, and improvement actions.
-- ♿ **Wheelchair Accessibility Check**: Automatically extracts and verifies wheelchair accessibility data such as entry access, path dimensions (door width, turning space), slopes, steps, and disabled facilities.
-- ☀️ **Thermal Efficiency & Sunlight Exposure**: Analyzes the drawing to estimate sunlight exposure, thermal efficiency, window impact, and estimated energy cost impacts for heating and cooling.
-- 💬 **Interactive Design Consultation**: Chat directly with the AI agent about the uploaded floor plan. Ask specific questions like "Is the wheelchair turning radius sufficient?" or "What if we change the door width to 1200mm?".
+View your app in AI Studio: https://ai.studio/apps/a3de6108-f90d-4245-903d-294dda97dca1
 
-## 🛠 Tech Stack
+## Run Locally
 
-- **Frontend**: React 19, Vite, TypeScript, Tailwind CSS
-- **UI & Animation**: Lucide React, Motion (Framer Motion)
-- **AI Integration**: Google Gemini API (`@google/genai`)
+**Prerequisites:** Node.js
 
-## ⚡ Prerequisites
+1. Install dependencies:
+   `npm install`
+2. Create `.env.local` and set:
+   `GEMINI_API_KEY=your_key`
+3. Start backend server:
+   `npm run dev:server`
+4. In another terminal, start frontend:
+   `npm run dev`
 
-- Node.js (v18 or higher recommended)
-- A Gemini API Key from [Google AI Studio](https://aistudio.google.com/)
+Frontend runs on `http://localhost:8080` and proxies `/api` to `http://localhost:8787`.
 
-## 🚀 Getting Started
+## Run as a Single Server (Production Style)
 
-1. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-2. **Environment Setup**:
-   Copy the example environment file and add your Gemini API Key.
-   ```bash
-   cp .env.example .env
-   ```
-   Open `.env` and configure your API key:
-   ```env
-   GEMINI_API_KEY="your_actual_gemini_api_key_here"
-   ```
-3. **Run the Development Server**:
-   ```bash
-   npm run dev
-   ```
-   The application will start, typically available at `http://localhost:8080` (or the port specified in `vite.config.ts`).
+1. Build frontend assets:
+   `npm run build`
+2. Start Express server:
+   `npm run start`
 
-## 📜 Available Scripts
-
-- `npm run dev`: Starts the local development server using Vite.
-- `npm run build`: Compiles TypeScript and builds the app for production.
-- `npm run preview`: Previews the production build locally.
-- `npm run lint`: Runs TypeScript type checking.
-- `npm run clean`: Cleans up the `dist/` directory.
-
-## 📖 Project Guidelines
-
-Please review the `AGENTS.md` file in the repository root for detailed guidelines regarding the project structure, module organization, coding style, and commit conventions.
-
-## 📄 License
-
-This project is open-source and licensed under the [Apache License 2.0](LICENSE).
+The server hosts API endpoints and serves `dist/` on `http://localhost:8787` (or `API_PORT`; in production, `PORT`).

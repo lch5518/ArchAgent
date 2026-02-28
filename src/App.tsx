@@ -644,19 +644,19 @@ export default function App() {
                         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                           <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center gap-1">
                             <Sun size={12} className="text-amber-500" />
-                            Sunlight Exposure
+                            일조 노출
                           </h4>
                           <div className="space-y-2">
                             <div>
-                              <span className="text-[10px] text-slate-500 font-bold uppercase">Morning</span>
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">오전</span>
                               <p className="text-xs text-slate-900">{thermalData.sunlight_exposure.morning}</p>
                             </div>
                             <div>
-                              <span className="text-[10px] text-slate-500 font-bold uppercase">Afternoon</span>
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">오후</span>
                               <p className="text-xs text-slate-900">{thermalData.sunlight_exposure.afternoon}</p>
                             </div>
                             <div className="pt-2 border-t border-slate-100">
-                              <span className="text-[10px] text-slate-500 font-bold uppercase">Overall Rating</span>
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">종합 등급</span>
                               <p className="text-sm font-bold text-amber-600">{thermalData.sunlight_exposure.overall_rating}</p>
                             </div>
                           </div>
@@ -664,15 +664,15 @@ export default function App() {
                         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                           <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center gap-1">
                             <Thermometer size={12} className="text-rose-500" />
-                            Thermal Efficiency
+                            열효율
                           </h4>
                           <div className="space-y-2">
                             <div>
-                              <span className="text-[10px] text-slate-500 font-bold uppercase">Summer Heat Gain</span>
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">여름철 열유입</span>
                               <p className="text-xs text-slate-900">{thermalData.thermal_efficiency.summer_heat_gain}</p>
                             </div>
                             <div>
-                              <span className="text-[10px] text-slate-500 font-bold uppercase">Winter Heat Loss</span>
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">겨울철 열손실</span>
                               <p className="text-xs text-slate-900">{thermalData.thermal_efficiency.winter_heat_loss}</p>
                             </div>
                             <div className="pt-2 border-t border-slate-100">
@@ -684,16 +684,16 @@ export default function App() {
 
                       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                         <div className="bg-slate-900 px-4 py-2">
-                          <span className="text-white font-bold text-sm">Window Analysis</span>
+                          <span className="text-white font-bold text-sm">창호 분석</span>
                         </div>
                         <div className="p-0">
                           <table className="w-full text-left border-collapse">
                             <thead>
                               <tr className="bg-slate-50 border-b border-slate-200">
-                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">Location</th>
-                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">Size</th>
-                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">Orientation</th>
-                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">Impact</th>
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">위치</th>
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">크기</th>
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">방향</th>
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">영향</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -712,11 +712,11 @@ export default function App() {
 
                       <div className="grid grid-cols-2 gap-4">
                         <div className="bg-rose-50 border border-rose-100 rounded-xl p-4">
-                          <h4 className="text-[10px] font-bold text-rose-700 uppercase mb-1">Summer Cooling Impact</h4>
+                          <h4 className="text-[10px] font-bold text-rose-700 uppercase mb-1">여름철 냉방 영향</h4>
                           <p className="text-xs font-bold text-rose-900">{thermalData.estimated_cost_impact.summer_cooling}</p>
                         </div>
                         <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-                          <h4 className="text-[10px] font-bold text-blue-700 uppercase mb-1">Winter Heating Impact</h4>
+                          <h4 className="text-[10px] font-bold text-blue-700 uppercase mb-1">겨울철 난방 영향</h4>
                           <p className="text-xs font-bold text-blue-900">{thermalData.estimated_cost_impact.winter_heating}</p>
                         </div>
                       </div>
@@ -733,7 +733,7 @@ export default function App() {
                       </div>
 
                       <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
-                        <h4 className="text-[10px] font-bold text-amber-700 uppercase mb-2">Design Recommendations</h4>
+                        <h4 className="text-[10px] font-bold text-amber-700 uppercase mb-2">설계 개선 제안</h4>
                         <ul className="space-y-1">
                           {thermalData.recommendations.map((rec, idx) => (
                             <li key={idx} className="text-xs text-amber-900 flex items-start gap-2">

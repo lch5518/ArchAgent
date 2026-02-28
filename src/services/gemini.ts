@@ -97,6 +97,32 @@ export interface ThermalAnalysis {
   }>;
 }
 
+function toKoreanThermalText(value: unknown, fallback: string, maxLength = 80): string {
+  const raw = typeof value === 'string' ? value : '';
+  const normalized = raw
+    .replace(/northwest/gi, '북서')
+    .replace(/northeast/gi, '북동')
+    .replace(/southwest/gi, '남서')
+    .replace(/southeast/gi, '남동')
+    .replace(/north/gi, '북')
+    .replace(/south/gi, '남')
+    .replace(/east/gi, '동')
+    .replace(/west/gi, '서')
+    .replace(/morning/gi, '오전')
+    .replace(/afternoon/gi, '오후')
+    .replace(/summer/gi, '여름')
+    .replace(/winter/gi, '겨울')
+    .replace(/heat gain/gi, '열유입')
+    .replace(/heat loss/gi, '열손실')
+    .replace(/[A-Za-z]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const base = normalized || fallback;
+  if (base.length <= maxLength) return base;
+  return `${base.slice(0, maxLength)}...`;
+}
+
 function normalizeWheelchairAnalysis(input: unknown): WheelchairAnalysis {
   const data = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
   const floorsRaw = Array.isArray(data.floor_analysis) ? data.floor_analysis : [];
@@ -224,10 +250,10 @@ function normalizeThermalAnalysis(input: unknown): ThermalAnalysis {
   const window_analysis = windowsRaw.map((item, idx) => {
     const win = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
     return {
-      location: typeof win.location === 'string' ? win.location : `창 ${idx + 1}`,
-      size_estimate: typeof win.size_estimate === 'string' ? win.size_estimate : '정보 없음',
-      orientation: typeof win.orientation === 'string' ? win.orientation : '정보 없음',
-      impact: typeof win.impact === 'string' ? win.impact : '정보 없음',
+      location: toKoreanThermalText(win.location, `창 ${idx + 1}`, 30),
+      size_estimate: toKoreanThermalText(win.size_estimate, '정보 없음', 40),
+      orientation: toKoreanThermalText(win.orientation, '정보 없음', 20),
+      impact: toKoreanThermalText(win.impact, '정보 없음', 70),
     };
   });
 
@@ -244,7 +270,7 @@ function normalizeThermalAnalysis(input: unknown): ThermalAnalysis {
       }
 
       return {
-        label: typeof region.label === 'string' ? region.label : `일조 영역 ${idx + 1}`,
+        label: toKoreanThermalText(region.label, `일조 영역 ${idx + 1}`, 20),
         x: Math.max(2, Math.min(98, xRaw)),
         y: Math.max(2, Math.min(98, yRaw)),
         radius: Math.max(40, Math.min(220, radiusRaw)),
@@ -263,23 +289,23 @@ function normalizeThermalAnalysis(input: unknown): ThermalAnalysis {
 
   return {
     sunlight_exposure: {
-      morning: typeof sunlight.morning === 'string' ? sunlight.morning : '정보 없음',
-      afternoon: typeof sunlight.afternoon === 'string' ? sunlight.afternoon : '정보 없음',
-      overall_rating: typeof sunlight.overall_rating === 'string' ? sunlight.overall_rating : '정보 없음',
+      morning: toKoreanThermalText(sunlight.morning, '정보 없음', 70),
+      afternoon: toKoreanThermalText(sunlight.afternoon, '정보 없음', 70),
+      overall_rating: toKoreanThermalText(sunlight.overall_rating, '정보 없음', 40),
     },
     thermal_efficiency: {
-      summer_heat_gain: typeof thermal.summer_heat_gain === 'string' ? thermal.summer_heat_gain : '정보 없음',
-      winter_heat_loss: typeof thermal.winter_heat_loss === 'string' ? thermal.winter_heat_loss : '정보 없음',
-      details: typeof thermal.details === 'string' ? thermal.details : '세부 정보 없음',
+      summer_heat_gain: toKoreanThermalText(thermal.summer_heat_gain, '정보 없음', 70),
+      winter_heat_loss: toKoreanThermalText(thermal.winter_heat_loss, '정보 없음', 70),
+      details: toKoreanThermalText(thermal.details, '세부 정보 없음', 90),
     },
     window_analysis,
     estimated_cost_impact: {
-      summer_cooling: typeof estimated.summer_cooling === 'string' ? estimated.summer_cooling : '정보 없음',
-      winter_heating: typeof estimated.winter_heating === 'string' ? estimated.winter_heating : '정보 없음',
+      summer_cooling: toKoreanThermalText(estimated.summer_cooling, '정보 없음', 70),
+      winter_heating: toKoreanThermalText(estimated.winter_heating, '정보 없음', 70),
     },
     recommendations: recommendationsRaw
       .filter((item): item is string => typeof item === 'string')
-      .map((item) => item.trim())
+      .map((item) => toKoreanThermalText(item, '개선 제안 없음', 90))
       .filter(Boolean),
     heatmap_regions:
       heatmap_regions.length > 0

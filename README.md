@@ -30,4 +30,5 @@ Frontend runs on `http://localhost:8080` and proxies `/api` to `http://localhost
 2. Start Express server:
    `npm run start`
 
+`npm run start` always builds frontend first, then starts Express.  
 The server hosts API endpoints and serves `dist/` on `http://localhost:8787` (or `API_PORT`; in production, `PORT`).

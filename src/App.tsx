@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
-import { analyzeDrawing, chatWithAgent, checkWheelchairAccessibility, checkThermalEfficiency, type WheelchairAnalysis, type ThermalAnalysis } from './services/gemini';
+import { analyzeDrawing, chatWithAgent, checkWheelchairAccessibility, checkThermalEfficiency, type GeneralAnalysis, type WheelchairAnalysis, type ThermalAnalysis } from './services/gemini';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -42,7 +42,8 @@ export default function App() {
   const [image, setImage] = useState<string | null>(null);
   const [mimeType, setMimeType] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<GeneralAnalysis | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [wheelchairData, setWheelchairData] = useState<WheelchairAnalysis | null>(null);
   const [thermalData, setThermalData] = useState<ThermalAnalysis | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -68,6 +69,7 @@ export default function App() {
         setImage(base64);
         setMimeType(file.type);
         setAnalysis(null);
+        setAnalysisError(null);
         setWheelchairData(null);
         handleAnalyze(base64, file.type);
       };
@@ -80,6 +82,7 @@ export default function App() {
     try {
       const result = await analyzeDrawing(imgData, type);
       setAnalysis(result);
+      setAnalysisError(null);
       setMessages([{
         role: 'agent',
         content: "도면 분석이 완료되었습니다. 왼쪽 패널에서 상세 분석 내용을 확인하실 수 있습니다. '휠체어 접근성 체크' 버튼을 눌러 상세 데이터를 추출할 수도 있습니다.",
@@ -87,7 +90,8 @@ export default function App() {
       }]);
     } catch (error) {
       console.error(error);
-      setAnalysis("분석 중 오류가 발생했습니다.");
+      setAnalysis(null);
+      setAnalysisError("분석 중 오류가 발생했습니다.");
     } finally {
       setIsAnalyzing(false);
     }
@@ -197,6 +201,7 @@ export default function App() {
               setImage(sampleUrl);
               setMimeType("image/png");
               setAnalysis(null);
+              setAnalysisError(null);
               setWheelchairData(null);
               handleAnalyze(sampleUrl, "image/png");
             }}
@@ -308,8 +313,116 @@ export default function App() {
                   </div>
 
                   {analysis ? (
-                    <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm prose prose-slate prose-sm max-w-none">
-                      <Markdown>{analysis}</Markdown>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="col-span-2 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">프로젝트</p>
+                          <h3 className="text-sm font-bold text-slate-900">{analysis.project_type}</h3>
+                          <p className="mt-2 text-xs text-slate-600 leading-relaxed">{analysis.summary}</p>
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col justify-between">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase">종합 점수</p>
+                          <p className="text-3xl font-black text-slate-900 leading-none">
+                            {Math.round(analysis.overall_score)}
+                            <span className="text-sm font-bold text-slate-400">/100</span>
+                          </p>
+                          <span
+                            className={cn(
+                              "w-fit px-2 py-1 rounded text-[10px] font-bold uppercase",
+                              analysis.compliance_level === '높음'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : analysis.compliance_level === '보통'
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-rose-100 text-rose-700'
+                            )}
+                          >
+                            {analysis.compliance_level} 준수
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                        <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-3">핵심 점검</h4>
+                        {analysis.key_findings.length > 0 ? (
+                          <div className="space-y-2">
+                            {analysis.key_findings.map((finding, idx) => (
+                              <div key={idx} className="border border-slate-100 rounded-lg p-3 bg-slate-50/50">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs font-bold text-slate-800">{finding.item}</p>
+                                  <span
+                                    className={cn(
+                                      "px-2 py-0.5 rounded text-[10px] font-bold uppercase",
+                                      finding.status === '적합'
+                                        ? 'bg-emerald-100 text-emerald-700'
+                                        : finding.status === '주의'
+                                          ? 'bg-amber-100 text-amber-700'
+                                          : 'bg-rose-100 text-rose-700'
+                                    )}
+                                  >
+                                    {finding.status}
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-[11px] text-slate-600">{finding.detail}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-500">핵심 점검 결과가 없습니다.</p>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-3">법규 체크</h4>
+                          {analysis.legal_checks.length > 0 ? (
+                            <div className="space-y-2">
+                              {analysis.legal_checks.map((check, idx) => (
+                                <div key={idx} className="rounded-lg border border-slate-100 p-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-xs font-bold text-slate-800">{check.code}</p>
+                                    <span
+                                      className={cn(
+                                        "px-2 py-0.5 rounded text-[10px] font-bold uppercase",
+                                        check.result === '충족'
+                                          ? 'bg-emerald-100 text-emerald-700'
+                                          : check.result === '검토 필요'
+                                            ? 'bg-amber-100 text-amber-700'
+                                            : 'bg-rose-100 text-rose-700'
+                                      )}
+                                    >
+                                      {check.result}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 text-[11px] text-slate-600">{check.note}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-500">법규 체크 결과가 없습니다.</p>
+                          )}
+                        </div>
+
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-3">개선 액션</h4>
+                          {analysis.improvement_actions.length > 0 ? (
+                            <ul className="space-y-2">
+                              {analysis.improvement_actions.map((action, idx) => (
+                                <li key={idx} className="text-xs text-slate-700 flex items-start gap-2">
+                                  <span className="mt-1 w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0" />
+                                  {action}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-xs text-slate-500">개선 제안이 없습니다.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : analysisError ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-rose-500 border-2 border-dashed border-rose-200 rounded-xl bg-rose-50/40">
+                      <AlertCircle size={24} className="mb-2 opacity-70" />
+                      <p className="text-xs font-medium">{analysisError}</p>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">

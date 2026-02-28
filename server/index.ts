@@ -103,17 +103,13 @@ app.post('/api/analyze', async (req, res) => {
     const ai = getAiClient();
     const normalized = await normalizeImageData(imageData, mimeType);
     const prompt = `
-      You are an expert architectural design assistant.
-      Analyze the provided architectural drawing for accessibility compliance (Universal Design).
-      Focus on:
-      1. Wheelchair accessibility (ramps, slopes, turning circles).
-      2. Entrance and door widths (minimum 900mm recommended).
-      3. Circulation paths and corridor widths.
-      4. Restroom accessibility.
-
-      Provide a detailed analysis in Markdown format.
-      Include a section for "Compliance Check" with specific findings and "Design Suggestions" for improvements.
-      Be precise and professional.
+      [도면 분석 미션: 일반 설계 진단]
+      첨부된 건축 도면을 보고 접근성/동선/출입구/화장실 중심으로 핵심만 간결하게 평가해줘.
+      출력 언어는 반드시 한국어만 사용해줘. (영문 단어/약어 사용 금지)
+      project_type은 2~8자 한글로 매우 짧게 작성해줘.
+      summary는 1~2문장으로 90자 이내로 작성해줘.
+      key_findings/detail, legal_checks/note, improvement_actions도 각 항목당 짧고 간결하게 작성해줘.
+      반드시 아래 JSON 스키마 형식으로만 답변해줘.
     `;
 
     const response: GenerateContentResponse = await ai.models.generateContent({
@@ -124,9 +120,75 @@ app.post('/api/analyze', async (req, res) => {
           {text: prompt},
         ],
       },
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            project_type: {type: Type.STRING},
+            summary: {type: Type.STRING},
+            compliance_level: {type: Type.STRING},
+            overall_score: {type: Type.NUMBER},
+            key_findings: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  item: {type: Type.STRING},
+                  status: {type: Type.STRING},
+                  detail: {type: Type.STRING},
+                },
+                required: ['item', 'status', 'detail'],
+              },
+            },
+            legal_checks: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  code: {type: Type.STRING},
+                  result: {type: Type.STRING},
+                  note: {type: Type.STRING},
+                },
+                required: ['code', 'result', 'note'],
+              },
+            },
+            improvement_actions: {
+              type: Type.ARRAY,
+              items: {type: Type.STRING},
+            },
+          },
+          required: [
+            'project_type',
+            'summary',
+            'compliance_level',
+            'overall_score',
+            'key_findings',
+            'legal_checks',
+            'improvement_actions',
+          ],
+        },
+      },
     });
 
-    return res.json({analysis: response.text || 'Analysis failed.'});
+    const text = response.text || '';
+    let analysis: unknown;
+
+    try {
+      analysis = parseModelJson(text);
+    } catch {
+      analysis = {
+        project_type: '건축 도면',
+        summary: text || '분석 결과를 생성하지 못했습니다.',
+        compliance_level: '보통',
+        overall_score: 50,
+        key_findings: [],
+        legal_checks: [],
+        improvement_actions: [],
+      };
+    }
+
+    return res.json({analysis});
   } catch (error) {
     console.error(error);
     const message = error instanceof Error ? error.message : 'Analyze failed.';

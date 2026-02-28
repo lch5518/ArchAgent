@@ -1,0 +1,5 @@
+{
+  "name": "ArchAgent: AI Architectural Design Assistant",
+  "description": "An AI-powered architectural design agent that analyzes drawings for accessibility compliance and provides design feedback.",
+  "requestFramePermissions": []
+}

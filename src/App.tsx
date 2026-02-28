@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
-import { analyzeDrawing, chatWithAgent } from './services/gemini';
+import { analyzeDrawing, chatWithAgent, checkWheelchairAccessibility, type WheelchairAnalysis } from './services/gemini';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -41,11 +41,13 @@ export default function App() {
   const [mimeType, setMimeType] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<string | null>(null);
+  const [wheelchairData, setWheelchairData] = useState<WheelchairAnalysis | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
+  const [activeTab, setActiveTab] = useState<'general' | 'wheelchair'>('general');
   
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -62,6 +64,8 @@ export default function App() {
         const base64 = event.target?.result as string;
         setImage(base64);
         setMimeType(file.type);
+        setAnalysis(null);
+        setWheelchairData(null);
         handleAnalyze(base64, file.type);
       };
       reader.readAsDataURL(file);
@@ -71,16 +75,62 @@ export default function App() {
   const handleAnalyze = async (imgData: string, type: string) => {
     setIsAnalyzing(true);
     try {
-      const result = await analyzeDrawing(imgData, type);
+      let dataToAnalyze = imgData;
+      // If it's a URL, we need to fetch it and convert to base64 for Gemini
+      if (imgData.startsWith('http')) {
+        const response = await fetch(imgData);
+        const blob = await response.blob();
+        dataToAnalyze = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(blob);
+        });
+      }
+      
+      const result = await analyzeDrawing(dataToAnalyze, type);
       setAnalysis(result);
       setMessages([{
         role: 'agent',
-        content: "도면 분석이 완료되었습니다. 왼쪽 패널에서 상세 분석 내용을 확인하실 수 있습니다. 추가로 궁금한 점이 있으시면 말씀해 주세요.",
+        content: "도면 분석이 완료되었습니다. 왼쪽 패널에서 상세 분석 내용을 확인하실 수 있습니다. '휠체어 접근성 체크' 버튼을 눌러 상세 데이터를 추출할 수도 있습니다.",
         timestamp: new Date()
       }]);
     } catch (error) {
       console.error(error);
       setAnalysis("분석 중 오류가 발생했습니다.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleWheelchairCheck = async () => {
+    if (!image) return;
+    setIsAnalyzing(true);
+    setActiveTab('wheelchair');
+    try {
+      let dataToAnalyze = image;
+      if (image.startsWith('http')) {
+        const response = await fetch(image);
+        const blob = await response.blob();
+        dataToAnalyze = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(blob);
+        });
+      }
+      const data = await checkWheelchairAccessibility(dataToAnalyze, mimeType);
+      setWheelchairData(data);
+      setMessages(prev => [...prev, {
+        role: 'agent',
+        content: "휠체어 접근성 데이터 추출이 완료되었습니다. 상세 표를 확인해 주세요.",
+        timestamp: new Date()
+      }]);
+    } catch (error) {
+      console.error(error);
+      setMessages(prev => [...prev, {
+        role: 'agent',
+        content: "휠체어 접근성 데이터 추출 중 오류가 발생했습니다.",
+        timestamp: new Date()
+      }]);
     } finally {
       setIsAnalyzing(false);
     }
@@ -136,6 +186,30 @@ export default function App() {
         </div>
         <div className="flex items-center gap-4">
           <button 
+            onClick={() => {
+              // Using a high-quality architectural floor plan sample
+              const sampleUrl = "https://images.unsplash.com/photo-1503387762-592dec58ef4e?q=80&w=2000&auto=format&fit=crop";
+              setImage(sampleUrl);
+              setMimeType("image/jpeg");
+              setAnalysis(null);
+              setWheelchairData(null);
+              handleAnalyze(sampleUrl, "image/jpeg");
+            }}
+            disabled={isAnalyzing}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors disabled:opacity-50"
+          >
+            <Layout size={16} />
+            샘플 도면
+          </button>
+          <button 
+            onClick={handleWheelchairCheck}
+            disabled={!image || isAnalyzing}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
+          >
+            <CheckCircle2 size={16} />
+            휠체어 접근성 체크
+          </button>
+          <button 
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors"
           >
@@ -156,7 +230,7 @@ export default function App() {
         {/* Left Panel: Drawing & Analysis */}
         <div className="w-1/2 flex flex-col border-r border-slate-200 bg-white overflow-hidden">
           {/* Drawing Viewer */}
-          <div className="h-3/5 relative bg-slate-100 data-grid overflow-hidden group">
+          <div className="h-2/5 relative bg-slate-100 data-grid overflow-hidden group">
             {image ? (
               <div className="w-full h-full flex items-center justify-center p-8">
                 <motion.div 
@@ -193,30 +267,133 @@ export default function App() {
             )}
           </div>
 
-          {/* Analysis Results */}
-          <div className="flex-1 overflow-y-auto p-6 border-t border-slate-200 bg-slate-50/50">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-bold uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-emerald-500" />
-                AI Analysis Report
-              </h2>
-              {isAnalyzing && (
-                <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-                  <Loader2 size={14} className="animate-spin" />
-                  분석 중...
-                </div>
-              )}
+          {/* Analysis Results Tabs */}
+          <div className="flex-1 flex flex-col overflow-hidden border-t border-slate-200">
+            <div className="flex border-b border-slate-200 bg-slate-50">
+              <button 
+                onClick={() => setActiveTab('general')}
+                className={cn(
+                  "px-6 py-3 text-xs font-bold uppercase tracking-widest transition-colors border-b-2",
+                  activeTab === 'general' ? "border-slate-900 text-slate-900 bg-white" : "border-transparent text-slate-400 hover:text-slate-600"
+                )}
+              >
+                일반 분석
+              </button>
+              <button 
+                onClick={() => setActiveTab('wheelchair')}
+                className={cn(
+                  "px-6 py-3 text-xs font-bold uppercase tracking-widest transition-colors border-b-2",
+                  activeTab === 'wheelchair' ? "border-emerald-600 text-emerald-600 bg-white" : "border-transparent text-slate-400 hover:text-slate-600"
+                )}
+              >
+                휠체어 접근성
+              </button>
             </div>
-            
-            <div className="prose prose-slate prose-sm max-w-none">
-              {analysis ? (
-                <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-                  <Markdown>{analysis}</Markdown>
+
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+              {activeTab === 'general' ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                      <FileText size={16} className="text-slate-400" />
+                      AI 분석 리포트
+                    </h2>
+                    {isAnalyzing && activeTab === 'general' && <Loader2 size={14} className="animate-spin text-slate-400" />}
+                  </div>
+                  
+                  {analysis ? (
+                    <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm prose prose-slate prose-sm max-w-none">
+                      <Markdown>{analysis}</Markdown>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                      <FileText size={24} className="mb-2 opacity-50" />
+                      <p className="text-xs font-medium">도면을 업로드하면 AI가 법규 및 설계를 분석합니다.</p>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
-                  <FileText size={24} className="mb-2 opacity-50" />
-                  <p className="text-xs font-medium">도면을 업로드하면 AI가 법규 및 설계를 분석합니다.</p>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-emerald-600 flex items-center gap-2">
+                      <CheckCircle2 size={16} />
+                      휠체어 접근성 준수 데이터
+                    </h2>
+                    {isAnalyzing && activeTab === 'wheelchair' && <Loader2 size={14} className="animate-spin text-emerald-600" />}
+                  </div>
+
+                  {wheelchairData ? (
+                    <div className="space-y-6">
+                      {wheelchairData.floor_analysis.map((floor, idx) => (
+                        <div key={idx} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                          <div className="bg-slate-900 px-4 py-2 flex items-center justify-between">
+                            <span className="text-white font-bold text-sm">{floor.floor} 분석 결과</span>
+                            <span className={cn(
+                              "px-2 py-0.5 rounded text-[10px] font-bold uppercase",
+                              floor.compliance_level === 'High' ? "bg-emerald-500 text-white" : 
+                              floor.compliance_level === 'Medium' ? "bg-amber-500 text-white" : "bg-rose-500 text-white"
+                            )}>
+                              {floor.compliance_level === 'High' ? '높음' : floor.compliance_level === 'Medium' ? '보통' : '낮음'} 준수
+                            </span>
+                          </div>
+                          <div className="p-4 grid grid-cols-2 gap-4">
+                            <div className="space-y-3">
+                              <div>
+                                <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-1">출입구 접근성</h4>
+                                <p className="text-xs font-medium text-slate-900">{floor.entry_access.location}</p>
+                                <p className="text-[11px] text-slate-500 mt-0.5">{floor.entry_access.description}</p>
+                                <div className="mt-1 flex items-center gap-1">
+                                  {floor.entry_access.elevator_exists ? <CheckCircle2 size={12} className="text-emerald-500" /> : <AlertCircle size={12} className="text-rose-500" />}
+                                  <span className="text-[10px] font-bold text-slate-600">엘리베이터: {floor.entry_access.elevator_exists ? '있음' : '없음'}</span>
+                                </div>
+                              </div>
+                              <div>
+                                <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-1">경로 치수</h4>
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex items-center gap-1">
+                                    {floor.path_dimensions.door_width_ok ? <CheckCircle2 size={12} className="text-emerald-500" /> : <AlertCircle size={12} className="text-rose-500" />}
+                                    <span className="text-[10px] font-bold text-slate-600">문 너비 (900mm+)</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    {floor.path_dimensions.turning_space_ok ? <CheckCircle2 size={12} className="text-emerald-500" /> : <AlertCircle size={12} className="text-rose-500" />}
+                                    <span className="text-[10px] font-bold text-slate-600">회전 공간 (1.5m+)</span>
+                                  </div>
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-1">{floor.path_dimensions.details}</p>
+                              </div>
+                            </div>
+                            <div className="space-y-3">
+                              <div>
+                                <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-1">경사 및 단차</h4>
+                                <div className="flex items-center gap-1 mb-1">
+                                  {floor.slope_and_steps.ramp_found ? <CheckCircle2 size={12} className="text-emerald-500" /> : <AlertCircle size={12} className="text-rose-500" />}
+                                  <span className="text-[10px] font-bold text-slate-600">경사로: {floor.slope_and_steps.ramp_found ? '확인됨' : '미확인'}</span>
+                                </div>
+                                <p className="text-[11px] text-slate-500">{floor.slope_and_steps.steps_identified}</p>
+                              </div>
+                              <div>
+                                <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-1">장애인 시설</h4>
+                                <div className="flex items-center gap-1 mb-1">
+                                  {floor.disabled_facilities.accessible_toilet ? <CheckCircle2 size={12} className="text-emerald-500" /> : <AlertCircle size={12} className="text-rose-500" />}
+                                  <span className="text-[10px] font-bold text-slate-600">장애인 화장실: {floor.disabled_facilities.accessible_toilet ? '있음' : '없음'}</span>
+                                </div>
+                                <p className="text-[11px] text-slate-500">{floor.disabled_facilities.details}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
+                        <h4 className="text-[10px] font-bold text-emerald-700 uppercase mb-2">종합 권장 사항</h4>
+                        <p className="text-xs text-emerald-900 leading-relaxed">{wheelchairData.summary_recommendation}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                      <CheckCircle2 size={24} className="mb-2 opacity-50" />
+                      <p className="text-xs font-medium">상단의 '휠체어 접근성 체크' 버튼을 눌러 데이터를 추출하세요.</p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -228,11 +405,11 @@ export default function App() {
           <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white shrink-0">
             <div className="flex items-center gap-2">
               <MessageSquare size={18} className="text-slate-900" />
-              <h2 className="text-sm font-bold uppercase tracking-widest text-slate-900">Design Consultation</h2>
+              <h2 className="text-sm font-bold uppercase tracking-widest text-slate-900">설계 상담</h2>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Agent Online</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">에이전트 온라인</span>
             </div>
           </div>
 

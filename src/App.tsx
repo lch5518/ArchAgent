@@ -286,6 +286,45 @@ export default function App() {
                       </div>
                     </>
                   )}
+                  {activeTab === 'thermal' && thermalData && thermalData.heatmap_regions.length > 0 && (
+                    <>
+                      <div className="absolute top-2 right-2 z-20 flex items-center gap-2 bg-white/90 backdrop-blur px-2 py-1 rounded-md border border-slate-200 shadow-sm text-[10px] font-bold text-slate-700">
+                        <span className="inline-flex items-center gap-1 text-amber-700">
+                          <Sun size={11} />
+                          일조 히트맵
+                        </span>
+                      </div>
+                      <div className="absolute inset-0 pointer-events-none z-10 mix-blend-multiply">
+                        {thermalData.heatmap_regions.map((region, idx) => (
+                          <div
+                            key={`${region.label}-${idx}`}
+                            className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full"
+                            style={{
+                              left: `${region.x}%`,
+                              top: `${region.y}%`,
+                              width: `${region.radius * 2}px`,
+                              height: `${region.radius * 2}px`,
+                              background: `radial-gradient(circle, rgba(245, 158, 11, ${0.2 + (region.intensity * 0.45)}) 0%, rgba(251, 191, 36, ${0.12 + (region.intensity * 0.2)}) 35%, rgba(251, 191, 36, 0) 72%)`,
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <div className="absolute inset-0 pointer-events-none z-20">
+                        {thermalData.heatmap_regions.map((region, idx) => (
+                          <div
+                            key={`label-${region.label}-${idx}`}
+                            className="absolute -translate-x-1/2 -translate-y-1/2"
+                            style={{ left: `${region.x}%`, top: `${region.y}%` }}
+                          >
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/95 border border-amber-200 text-amber-700 shadow-sm">
+                              <Sun size={10} />
+                              {region.label}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </motion.div>
 
                 {/* Viewer Controls */}
@@ -679,6 +718,17 @@ export default function App() {
                         <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
                           <h4 className="text-[10px] font-bold text-blue-700 uppercase mb-1">Winter Heating Impact</h4>
                           <p className="text-xs font-bold text-blue-900">{thermalData.estimated_cost_impact.winter_heating}</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                        <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2">일조 히트맵 요약</h4>
+                        <div className="flex items-center gap-2 text-[11px] text-slate-600">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700 font-bold">
+                            <Sun size={11} />
+                            영역 {thermalData.heatmap_regions.length}개
+                          </span>
+                          <span>상단 도면에서 일조 집중 영역이 오버레이로 표시됩니다.</span>
                         </div>
                       </div>
 

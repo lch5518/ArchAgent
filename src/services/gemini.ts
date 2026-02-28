@@ -88,6 +88,13 @@ export interface ThermalAnalysis {
     winter_heating: string;
   };
   recommendations: string[];
+  heatmap_regions: Array<{
+    label: string;
+    x: number;
+    y: number;
+    radius: number;
+    intensity: number;
+  }>;
 }
 
 function normalizeWheelchairAnalysis(input: unknown): WheelchairAnalysis {
@@ -212,6 +219,47 @@ function normalizeThermalAnalysis(input: unknown): ThermalAnalysis {
     : {}) as Record<string, unknown>;
   const windowsRaw = Array.isArray(data.window_analysis) ? data.window_analysis : [];
   const recommendationsRaw = Array.isArray(data.recommendations) ? data.recommendations : [];
+  const heatmapRaw = Array.isArray(data.heatmap_regions) ? data.heatmap_regions : [];
+
+  const window_analysis = windowsRaw.map((item, idx) => {
+    const win = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    return {
+      location: typeof win.location === 'string' ? win.location : `창 ${idx + 1}`,
+      size_estimate: typeof win.size_estimate === 'string' ? win.size_estimate : '정보 없음',
+      orientation: typeof win.orientation === 'string' ? win.orientation : '정보 없음',
+      impact: typeof win.impact === 'string' ? win.impact : '정보 없음',
+    };
+  });
+
+  const heatmap_regions = heatmapRaw
+    .map((item, idx) => {
+      const region = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+      const xRaw = typeof region.x === 'number' ? region.x : Number(region.x);
+      const yRaw = typeof region.y === 'number' ? region.y : Number(region.y);
+      const radiusRaw = typeof region.radius === 'number' ? region.radius : Number(region.radius);
+      const intensityRaw = typeof region.intensity === 'number' ? region.intensity : Number(region.intensity);
+
+      if ([xRaw, yRaw, radiusRaw, intensityRaw].some((v) => Number.isNaN(v))) {
+        return null;
+      }
+
+      return {
+        label: typeof region.label === 'string' ? region.label : `일조 영역 ${idx + 1}`,
+        x: Math.max(2, Math.min(98, xRaw)),
+        y: Math.max(2, Math.min(98, yRaw)),
+        radius: Math.max(40, Math.min(220, radiusRaw)),
+        intensity: Math.max(0, Math.min(1, intensityRaw)),
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+
+  const fallbackHeatmapRegions = window_analysis.map((win, idx) => ({
+    label: win.location,
+    x: [22, 48, 72, 35, 64][idx % 5],
+    y: [24, 38, 30, 62, 56][idx % 5],
+    radius: [110, 95, 120, 85, 100][idx % 5],
+    intensity: [0.85, 0.7, 0.9, 0.6, 0.75][idx % 5],
+  }));
 
   return {
     sunlight_exposure: {
@@ -224,15 +272,7 @@ function normalizeThermalAnalysis(input: unknown): ThermalAnalysis {
       winter_heat_loss: typeof thermal.winter_heat_loss === 'string' ? thermal.winter_heat_loss : '정보 없음',
       details: typeof thermal.details === 'string' ? thermal.details : '세부 정보 없음',
     },
-    window_analysis: windowsRaw.map((item, idx) => {
-      const win = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
-      return {
-        location: typeof win.location === 'string' ? win.location : `창 ${idx + 1}`,
-        size_estimate: typeof win.size_estimate === 'string' ? win.size_estimate : '정보 없음',
-        orientation: typeof win.orientation === 'string' ? win.orientation : '정보 없음',
-        impact: typeof win.impact === 'string' ? win.impact : '정보 없음',
-      };
-    }),
+    window_analysis,
     estimated_cost_impact: {
       summer_cooling: typeof estimated.summer_cooling === 'string' ? estimated.summer_cooling : '정보 없음',
       winter_heating: typeof estimated.winter_heating === 'string' ? estimated.winter_heating : '정보 없음',
@@ -241,6 +281,18 @@ function normalizeThermalAnalysis(input: unknown): ThermalAnalysis {
       .filter((item): item is string => typeof item === 'string')
       .map((item) => item.trim())
       .filter(Boolean),
+    heatmap_regions:
+      heatmap_regions.length > 0
+        ? heatmap_regions
+        : fallbackHeatmapRegions.length > 0
+          ? fallbackHeatmapRegions
+          : [{
+            label: '중앙 일조 영역',
+            x: 50,
+            y: 45,
+            radius: 120,
+            intensity: 0.75,
+          }],
   };
 }
 

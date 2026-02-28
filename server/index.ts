@@ -342,6 +342,13 @@ app.post('/api/thermal', async (req, res) => {
       3. window_analysis: 주요 창문의 위치, 크기(추정), 방향 및 영향
       4. estimated_cost_impact: 계절별 비용 영향 예측
       5. recommendations: 개선을 위한 설계 제안
+      6. heatmap_regions: 도면 위 일조 집중 영역 좌표 목록
+
+      [heatmap_regions 규칙]
+      - x, y: 도면 좌상단 기준 백분율 좌표 (0~100)
+      - radius: 픽셀 반경 (40~220)
+      - intensity: 강도 (0~1, 값이 클수록 더 뜨거운 영역)
+      - label: 한글 짧은 설명
     `;
 
     const response: GenerateContentResponse = await ai.models.generateContent({
@@ -400,6 +407,20 @@ app.post('/api/thermal', async (req, res) => {
               type: Type.ARRAY,
               items: {type: Type.STRING},
             },
+            heatmap_regions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  label: {type: Type.STRING},
+                  x: {type: Type.NUMBER},
+                  y: {type: Type.NUMBER},
+                  radius: {type: Type.NUMBER},
+                  intensity: {type: Type.NUMBER},
+                },
+                required: ['label', 'x', 'y', 'radius', 'intensity'],
+              },
+            },
           },
           required: [
             'sunlight_exposure',
@@ -407,6 +428,7 @@ app.post('/api/thermal', async (req, res) => {
             'window_analysis',
             'estimated_cost_impact',
             'recommendations',
+            'heatmap_regions',
           ],
         },
       },

@@ -9,7 +9,9 @@ dotenv.config({path: '.env.local'});
 dotenv.config();
 
 const app = express();
-const port = Number(process.env.PORT) || 8787;
+const port =
+  Number(process.env.API_PORT) ||
+  (process.env.NODE_ENV === 'production' ? Number(process.env.PORT) : 8787);
 const model = 'gemini-3.1-pro-preview';
 
 const __filename = fileURLToPath(import.meta.url);

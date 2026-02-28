@@ -75,27 +75,7 @@ export default function App() {
   const handleAnalyze = async (imgData: string, type: string) => {
     setIsAnalyzing(true);
     try {
-      let dataToAnalyze = imgData;
-      // If it's a URL, we need to fetch it and convert to base64 for Gemini
-      if (imgData.startsWith('http')) {
-        try {
-          const response = await window.fetch(imgData, { mode: 'cors' });
-          const blob = await response.blob();
-          dataToAnalyze = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-        } catch (e) {
-          console.error("Fetch failed, attempting to use image directly", e);
-          // Fallback: if fetch fails (CORS), we might just have to hope the model can't see it
-          // or handle it differently. But for Gemini we NEED the data.
-          throw new Error("이미지를 가져오는데 실패했습니다. CORS 정책 때문일 수 있습니다. 직접 업로드해 주세요.");
-        }
-      }
-      
-      const result = await analyzeDrawing(dataToAnalyze, type);
+      const result = await analyzeDrawing(imgData, type);
       setAnalysis(result);
       setMessages([{
         role: 'agent',
@@ -115,22 +95,7 @@ export default function App() {
     setIsAnalyzing(true);
     setActiveTab('wheelchair');
     try {
-      let dataToAnalyze = image;
-      if (image.startsWith('http')) {
-        try {
-          const response = await window.fetch(image, { mode: 'cors' });
-          const blob = await response.blob();
-          dataToAnalyze = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-        } catch (e) {
-          throw new Error("이미지를 가져오는데 실패했습니다. 직접 업로드한 도면으로 시도해 주세요.");
-        }
-      }
-      const data = await checkWheelchairAccessibility(dataToAnalyze, mimeType);
+      const data = await checkWheelchairAccessibility(image, mimeType);
       setWheelchairData(data);
       setMessages(prev => [...prev, {
         role: 'agent',

@@ -1,0 +1,308 @@
+import express from 'express';
+import dotenv from 'dotenv';
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {GoogleGenAI, Type, type GenerateContentResponse} from '@google/genai';
+
+dotenv.config({path: '.env.local'});
+dotenv.config();
+
+const app = express();
+const port = Number(process.env.PORT) || 8787;
+const model = 'gemini-3.1-pro-preview';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distDir = path.resolve(__dirname, '..', 'dist');
+
+app.use(express.json({limit: '25mb'}));
+
+type ChatHistoryItem = {
+  role?: string;
+  content?: string;
+};
+
+type ChatImage = {
+  data: string;
+  mimeType?: string;
+};
+
+function getAiClient(): GoogleGenAI {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is missing. Set it in .env or .env.local.');
+  }
+  return new GoogleGenAI({apiKey});
+}
+
+async function normalizeImageData(
+  imageData: string,
+  fallbackMimeType = 'image/png',
+): Promise<{data: string; mimeType: string}> {
+  if (!imageData || typeof imageData !== 'string') {
+    throw new Error('imageData must be a non-empty string.');
+  }
+
+  const dataUrlMatch = imageData.match(/^data:([^;]+);base64,(.+)$/);
+  if (dataUrlMatch) {
+    return {mimeType: dataUrlMatch[1], data: dataUrlMatch[2]};
+  }
+
+  if (/^https?:\/\//i.test(imageData)) {
+    const response = await fetch(imageData);
+    if (!response.ok) {
+      throw new Error(`Failed to download remote image: ${response.status}`);
+    }
+    const contentType =
+      response.headers.get('content-type')?.split(';')[0] || fallbackMimeType;
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return {mimeType: contentType, data: buffer.toString('base64')};
+  }
+
+  if (imageData.includes(',')) {
+    const [, base64] = imageData.split(',', 2);
+    return {mimeType: fallbackMimeType, data: base64};
+  }
+
+  return {mimeType: fallbackMimeType, data: imageData};
+}
+
+function buildHistoryText(history: ChatHistoryItem[]): string {
+  return history
+    .filter((item) => item && typeof item.content === 'string')
+    .map((item) => {
+      const role = item.role === 'user' ? 'User' : 'Assistant';
+      return `${role}: ${item.content}`;
+    })
+    .join('\n');
+}
+
+function parseModelJson(text: string): unknown {
+  const cleaned = text
+    .trim()
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/, '');
+  return JSON.parse(cleaned);
+}
+
+app.get('/api/health', (_req, res) => {
+  res.json({ok: true});
+});
+
+app.post('/api/analyze', async (req, res) => {
+  try {
+    const {imageData, mimeType} = req.body ?? {};
+    if (typeof imageData !== 'string') {
+      return res.status(400).json({error: 'imageData is required.'});
+    }
+
+    const ai = getAiClient();
+    const normalized = await normalizeImageData(imageData, mimeType);
+    const prompt = `
+      You are an expert architectural design assistant.
+      Analyze the provided architectural drawing for accessibility compliance (Universal Design).
+      Focus on:
+      1. Wheelchair accessibility (ramps, slopes, turning circles).
+      2. Entrance and door widths (minimum 900mm recommended).
+      3. Circulation paths and corridor widths.
+      4. Restroom accessibility.
+
+      Provide a detailed analysis in Markdown format.
+      Include a section for "Compliance Check" with specific findings and "Design Suggestions" for improvements.
+      Be precise and professional.
+    `;
+
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model,
+      contents: {
+        parts: [
+          {inlineData: {data: normalized.data, mimeType: normalized.mimeType}},
+          {text: prompt},
+        ],
+      },
+    });
+
+    return res.json({analysis: response.text || 'Analysis failed.'});
+  } catch (error) {
+    console.error(error);
+    const message = error instanceof Error ? error.message : 'Analyze failed.';
+    return res.status(500).json({error: message});
+  }
+});
+
+app.post('/api/wheelchair', async (req, res) => {
+  try {
+    const {imageData, mimeType} = req.body ?? {};
+    if (typeof imageData !== 'string') {
+      return res.status(400).json({error: 'imageData is required.'});
+    }
+
+    const ai = getAiClient();
+    const normalized = await normalizeImageData(imageData, mimeType);
+    const prompt = `
+      [도면 분석 미션: 휠체어 접근성 데이터 추출]
+      첨부된 도면(지상 2층, 3층 평면도)을 분석하여 반드시 아래의 JSON 스키마 형식으로만 답변해줘.
+
+      [분석 항목 및 JSON 키]
+      1. entry_access: 주출입구 위치 및 승강기(E/V) 유무 분석
+      2. path_dimensions: 주출입문 유효 폭(900mm 기준) 및 내부 회전 공간(1.5m x 1.5m 기준) 확보 여부
+      3. slope_and_steps: 경사로(Ramp) 존재 여부 및 문턱/단차 식별 결과
+      4. disabled_facilities: 화장실 등 전용 시설의 적정성 분석
+      5. overall_compliance: 휠체어 접근성 최종 적합도 (High / Medium / Low)
+    `;
+
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model,
+      contents: {
+        parts: [
+          {inlineData: {data: normalized.data, mimeType: normalized.mimeType}},
+          {text: prompt},
+        ],
+      },
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            floor_analysis: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  floor: {type: Type.STRING},
+                  entry_access: {
+                    type: Type.OBJECT,
+                    properties: {
+                      location: {type: Type.STRING},
+                      elevator_exists: {type: Type.BOOLEAN},
+                      description: {type: Type.STRING},
+                    },
+                    required: ['location', 'elevator_exists', 'description'],
+                  },
+                  path_dimensions: {
+                    type: Type.OBJECT,
+                    properties: {
+                      door_width_ok: {type: Type.BOOLEAN},
+                      turning_space_ok: {type: Type.BOOLEAN},
+                      details: {type: Type.STRING},
+                    },
+                    required: ['door_width_ok', 'turning_space_ok', 'details'],
+                  },
+                  slope_and_steps: {
+                    type: Type.OBJECT,
+                    properties: {
+                      ramp_found: {type: Type.BOOLEAN},
+                      steps_identified: {type: Type.STRING},
+                    },
+                    required: ['ramp_found', 'steps_identified'],
+                  },
+                  disabled_facilities: {
+                    type: Type.OBJECT,
+                    properties: {
+                      accessible_toilet: {type: Type.BOOLEAN},
+                      details: {type: Type.STRING},
+                    },
+                    required: ['accessible_toilet', 'details'],
+                  },
+                  compliance_level: {type: Type.STRING},
+                },
+                required: [
+                  'floor',
+                  'entry_access',
+                  'path_dimensions',
+                  'slope_and_steps',
+                  'disabled_facilities',
+                  'compliance_level',
+                ],
+              },
+            },
+            summary_recommendation: {type: Type.STRING},
+          },
+          required: ['floor_analysis', 'summary_recommendation'],
+        },
+      },
+    });
+
+    const text = response.text || '{}';
+    const data = parseModelJson(text);
+    return res.json(data);
+  } catch (error) {
+    console.error(error);
+    const message = error instanceof Error ? error.message : 'Wheelchair analysis failed.';
+    return res.status(500).json({error: message});
+  }
+});
+
+app.post('/api/chat', async (req, res) => {
+  try {
+    const {message, history, imageData} = req.body ?? {
+      message: '',
+      history: [],
+    };
+
+    if (typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({error: 'message is required.'});
+    }
+
+    const ai = getAiClient();
+    const historyItems = Array.isArray(history) ? (history as ChatHistoryItem[]) : [];
+    const historyText = buildHistoryText(historyItems);
+
+    const prompt = `
+      You are ArchAgent, a professional architectural design AI.
+      You help architects and designers verify plans against regulations (like ADA or local accessibility laws) and suggest improvements.
+      Be helpful, precise, and technical.
+
+      Conversation so far:
+      ${historyText || '(no previous messages)'}
+
+      User: ${message}
+      Assistant:
+    `;
+
+    const parts: Array<{text?: string; inlineData?: {data: string; mimeType: string}}> = [];
+
+    if (imageData && typeof imageData === 'object' && typeof (imageData as ChatImage).data === 'string') {
+      const normalized = await normalizeImageData(
+        (imageData as ChatImage).data,
+        (imageData as ChatImage).mimeType || 'image/png',
+      );
+      parts.push({inlineData: {data: normalized.data, mimeType: normalized.mimeType}});
+    }
+    parts.push({text: prompt});
+
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model,
+      contents: {parts},
+    });
+
+    return res.json({response: response.text || ''});
+  } catch (error) {
+    console.error(error);
+    const message = error instanceof Error ? error.message : 'Chat failed.';
+    return res.status(500).json({error: message});
+  }
+});
+
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+}
+
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
+
+  const indexPath = path.join(distDir, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+
+  return res.status(200).send('Server is running. Build frontend with "npm run build" to serve the app UI.');
+});
+
+app.listen(port, () => {
+  console.log(`ArchAgent server listening on http://localhost:${port}`);
+});

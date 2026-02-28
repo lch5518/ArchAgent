@@ -4,15 +4,15 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Upload, 
-  MessageSquare, 
-  CheckCircle2, 
-  AlertCircle, 
-  Maximize2, 
-  Send, 
-  FileText, 
-  Layout, 
+import {
+  Upload,
+  MessageSquare,
+  CheckCircle2,
+  AlertCircle,
+  Maximize2,
+  Send,
+  FileText,
+  Layout,
   ChevronRight,
   ZoomIn,
   ZoomOut,
@@ -22,9 +22,27 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
-import { analyzeDrawing, chatWithAgent, checkWheelchairAccessibility, type WheelchairAnalysis } from './services/gemini';
+import { analyzeDrawing, chatWithAgent, checkWheelchairAccessibility, checkThermalEfficiency, type WheelchairAnalysis, type ThermalAnalysis } from './services/gemini';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import {
+  Upload,
+  MessageSquare,
+  CheckCircle2,
+  AlertCircle,
+  Maximize2,
+  Send,
+  FileText,
+  Layout,
+  ChevronRight,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Loader2,
+  Building2,
+  Sun,
+  Thermometer
+} from 'lucide-react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -42,13 +60,14 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [wheelchairData, setWheelchairData] = useState<WheelchairAnalysis | null>(null);
+  const [thermalData, setThermalData] = useState<ThermalAnalysis | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
-  const [activeTab, setActiveTab] = useState<'general' | 'wheelchair'>('general');
-  
+  const [activeTab, setActiveTab] = useState<'general' | 'wheelchair' | 'thermal'>('general');
+
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -75,7 +94,25 @@ export default function App() {
   const handleAnalyze = async (imgData: string, type: string) => {
     setIsAnalyzing(true);
     try {
-      const result = await analyzeDrawing(imgData, type);
+      let dataToAnalyze = imgData;
+      // If it's a URL, we need to fetch it and convert to base64 for Gemini
+      if (imgData.startsWith('http')) {
+        try {
+          const res = await fetch(imgData);
+          const blob = await res.blob();
+          dataToAnalyze = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } catch (e) {
+          console.error("Fetch failed, attempting to use image directly", e);
+          throw new Error("이미지를 가져오는데 실패했습니다. CORS 정책 때문일 수 있습니다. 직접 업로드해 주세요.");
+        }
+      }
+
+      const result = await analyzeDrawing(dataToAnalyze, type);
       setAnalysis(result);
       setMessages([{
         role: 'agent',
@@ -95,7 +132,22 @@ export default function App() {
     setIsAnalyzing(true);
     setActiveTab('wheelchair');
     try {
-      const data = await checkWheelchairAccessibility(image, mimeType);
+      let dataToAnalyze = image;
+      if (image.startsWith('http')) {
+        try {
+          const res = await fetch(image);
+          const blob = await res.blob();
+          dataToAnalyze = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } catch (e) {
+          throw new Error("이미지를 가져오는데 실패했습니다. 직접 업로드한 도면으로 시도해 주세요.");
+        }
+      }
+      const data = await checkWheelchairAccessibility(dataToAnalyze, mimeType);
       setWheelchairData(data);
       setMessages(prev => [...prev, {
         role: 'agent',
@@ -131,7 +183,7 @@ export default function App() {
     try {
       const history = messages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', content: m.content }));
       const response = await chatWithAgent(input, history, image ? { data: image, mimeType } : undefined);
-      
+
       setMessages(prev => [...prev, {
         role: 'agent',
         content: response || "죄송합니다. 답변을 생성하지 못했습니다.",
@@ -163,7 +215,48 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <button 
+          <button
+            onClick={async () => {
+              if (!image) return;
+              setIsAnalyzing(true);
+              setActiveTab('thermal');
+              try {
+                let dataToAnalyze = image;
+                if (image.startsWith('http')) {
+                  const res = await fetch(image);
+                  const blob = await res.blob();
+                  dataToAnalyze = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result as string);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                  });
+                }
+                const data = await checkThermalEfficiency(dataToAnalyze, mimeType);
+                setThermalData(data);
+                setMessages(prev => [...prev, {
+                  role: 'agent',
+                  content: "일조량 및 열효율 분석이 완료되었습니다. 상세 데이터를 확인해 주세요.",
+                  timestamp: new Date()
+                }]);
+              } catch (error) {
+                console.error(error);
+                setMessages(prev => [...prev, {
+                  role: 'agent',
+                  content: "열효율 분석 중 오류가 발생했습니다.",
+                  timestamp: new Date()
+                }]);
+              } finally {
+                setIsAnalyzing(false);
+              }
+            }}
+            disabled={!image || isAnalyzing}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors disabled:opacity-50"
+          >
+            <Sun size={16} />
+            일조/열효율 체크
+          </button>
+          <button
             onClick={() => {
               // Using the user-provided sample floor plan
               const sampleUrl = "https://ffec4799543d6a07e91676463267a7ad488855b70f48fe28eb14ea1-apidata.googleusercontent.com/download/storage/v1/b/archagent/o/sample_img%2Fsample.PNG?jk=AR8mTxA_dbg6R3VwLRRLoUcDR0Q_t6TWLQO5NPtyhdgr3OH_Z2cVjIVlVIAXlWEG-xTKYJzVSJ4NJACEJ2tiDrkoe8bHqALHMiVVV_oXdo8vncjrHeyEVAZr3oZ2QmY-oaFwCSkVETW8nI7cE_v2o8yiwjHmCwKVa_nuz6paNAoB2lXOX_o1wB0uF0U_ZZ0GmaQlD0UPKtqmVLicIBgdwlRyFgxQ64MWlVJu8h_J7p3Jx-4oEXxI9ZuCPmYL8u8bCP3R3g4nY7HaC1vdQLKofY0Ih4GAvsYkDBVOyS0gMDeIhMGfauZpRb48AL8H08fcUGgKpSF8HLJKrX8yhxJCoMnB2HIlyYIHnEjxL3AmPD_sR6Nx7qFmcfFODmTvohV-celC1RQCzBMprUqUTYceAWU5G9q7toufuSmZSrIMa2j8T6nU_dfo9m5p0nzim0EZetrC6tvFqikQQVBUc-eW8BJTFVrU3xr7H0MZsxwGan9hJ34svCKFhUAzCCTDOKR96zMXHyVn3_JWdMH5AVyDpCojfSO2WjZk0hpUPe7PsC9vhvVnFIeBo9HAGChT3oubXTKlNdnY2B7ZYyTe3rubH_akMeJZobJRizT1rIN5YIDXv4Y032mzNgaRHi_pycMo3RwUj81f1jP3RRkT76Nlg02Wpf_ZWyD_UKLQaS-zCxYwHRinvrlUg1l7l4WerCGUXQprsKpPiDPgv37p35B68F3ydRTGxVhkGe_TUClotopgEeyfTYHQ5-kKtwvOVm0qgafHRiB8WOnUkU9RWNsTEDoMgvY1zi1N6cVhkvBIP-OhxQ2M4Lcbk2KOpXs4_viyX-oXg8u-aBEGI3ALjlMNqZFW7C8ic9o0Bppxd7kAyFzXeAWmAWydD_BdYrRvTOljjh2cbqSLPoPSF_h5Rq3G1RGmkmtq-2A7FErEX-7ouxcQ9NrnP7NPbNsUPPpToDHyFwGfKpfyCkrzTTgJhQdHz_umDsbwxkXmPHKbNYnXtr6BFW0QymiuN-XGapra5g0omcYZnjV45d0mwFGm6UpcemxY_jBGAwnECM24paxaV0gYGoGI1o33B6Sg6FdrNfeuyyRBpiwLCOnH-KzeNw0iP2QVZm5oljvF30XCe45yiGrhtGgNTO_aj9u9YlPrhaKeVe6pJHNiIq0vHb5Us8EUxzBveiED2rY&isca=1";
@@ -179,19 +272,19 @@ export default function App() {
             <Layout size={16} />
             샘플 도면
           </button>
-          <button 
+          <button
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors"
           >
             <Upload size={16} />
             도면 업로드
           </button>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileUpload} 
-            accept="image/*" 
-            className="hidden" 
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            accept="image/*"
+            className="hidden"
           />
         </div>
       </header>
@@ -203,25 +296,25 @@ export default function App() {
           <div className="h-2/5 relative bg-slate-100 data-grid overflow-hidden group">
             {image ? (
               <div className="w-full h-full flex items-center justify-center p-8">
-                <motion.div 
+                <motion.div
                   style={{ scale: zoom, rotate: rotation }}
                   className="relative shadow-2xl bg-white p-2"
                 >
-                  <img 
-                    src={image} 
-                    alt="Architectural Drawing" 
+                  <img
+                    src={image}
+                    alt="Architectural Drawing"
                     className="max-w-full max-h-full object-contain"
                     referrerPolicy="no-referrer"
                   />
                 </motion.div>
-                
+
                 {/* Viewer Controls */}
                 <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/90 backdrop-blur border border-slate-200 p-1.5 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">
                   <button onClick={() => setZoom(z => Math.min(z + 0.2, 3))} className="p-2 hover:bg-slate-100 rounded-full text-slate-600"><ZoomIn size={18} /></button>
                   <button onClick={() => setZoom(z => Math.max(z - 0.2, 0.5))} className="p-2 hover:bg-slate-100 rounded-full text-slate-600"><ZoomOut size={18} /></button>
                   <button onClick={() => setRotation(r => r + 90)} className="p-2 hover:bg-slate-100 rounded-full text-slate-600"><RotateCcw size={18} /></button>
                   <div className="w-px h-4 bg-slate-200 mx-1" />
-                  <button onClick={() => {setZoom(1); setRotation(0);}} className="px-3 py-1 text-xs font-semibold text-slate-500 hover:text-slate-900">Reset</button>
+                  <button onClick={() => { setZoom(1); setRotation(0); }} className="px-3 py-1 text-xs font-semibold text-slate-500 hover:text-slate-900">Reset</button>
                 </div>
               </div>
             ) : (
@@ -240,7 +333,7 @@ export default function App() {
           {/* Analysis Results Tabs */}
           <div className="flex-1 flex flex-col overflow-hidden border-t border-slate-200">
             <div className="flex border-b border-slate-200 bg-slate-50">
-              <button 
+              <button
                 onClick={() => setActiveTab('general')}
                 className={cn(
                   "px-6 py-3 text-xs font-bold uppercase tracking-widest transition-colors border-b-2",
@@ -249,7 +342,7 @@ export default function App() {
               >
                 일반 분석
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('wheelchair')}
                 className={cn(
                   "px-6 py-3 text-xs font-bold uppercase tracking-widest transition-colors border-b-2",
@@ -257,6 +350,15 @@ export default function App() {
                 )}
               >
                 휠체어 접근성
+              </button>
+              <button
+                onClick={() => setActiveTab('thermal')}
+                className={cn(
+                  "px-6 py-3 text-xs font-bold uppercase tracking-widest transition-colors border-b-2",
+                  activeTab === 'thermal' ? "border-amber-600 text-amber-600 bg-white" : "border-transparent text-slate-400 hover:text-slate-600"
+                )}
+              >
+                일조/열효율
               </button>
             </div>
 
@@ -270,7 +372,7 @@ export default function App() {
                     </h2>
                     {isAnalyzing && activeTab === 'general' && <Loader2 size={14} className="animate-spin text-slate-400" />}
                   </div>
-                  
+
                   {analysis ? (
                     <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm prose prose-slate prose-sm max-w-none">
                       <Markdown>{analysis}</Markdown>
@@ -282,7 +384,7 @@ export default function App() {
                     </div>
                   )}
                 </div>
-              ) : (
+              ) : activeTab === 'wheelchair' ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -290,7 +392,7 @@ export default function App() {
                         <CheckCircle2 size={16} />
                         휠체어 접근성 준수 데이터
                       </h2>
-                      <button 
+                      <button
                         onClick={handleWheelchairCheck}
                         disabled={!image || isAnalyzing}
                         className="flex items-center gap-2 px-3 py-1 bg-emerald-600 text-white rounded-md text-[10px] font-bold uppercase hover:bg-emerald-700 transition-colors disabled:opacity-50"
@@ -310,8 +412,8 @@ export default function App() {
                             <span className="text-white font-bold text-sm">{floor.floor} 분석 결과</span>
                             <span className={cn(
                               "px-2 py-0.5 rounded text-[10px] font-bold uppercase",
-                              floor.compliance_level === 'High' ? "bg-emerald-500 text-white" : 
-                              floor.compliance_level === 'Medium' ? "bg-amber-500 text-white" : "bg-rose-500 text-white"
+                              floor.compliance_level === 'High' ? "bg-emerald-500 text-white" :
+                                floor.compliance_level === 'Medium' ? "bg-amber-500 text-white" : "bg-rose-500 text-white"
                             )}>
                               {floor.compliance_level === 'High' ? '높음' : floor.compliance_level === 'Medium' ? '보통' : '낮음'} 준수
                             </span>
@@ -375,6 +477,118 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-amber-600 flex items-center gap-2">
+                      <Sun size={16} />
+                      일조량 및 열효율 분석
+                    </h2>
+                    {isAnalyzing && activeTab === 'thermal' && <Loader2 size={14} className="animate-spin text-amber-600" />}
+                  </div>
+
+                  {thermalData ? (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center gap-1">
+                            <Sun size={12} className="text-amber-500" />
+                            Sunlight Exposure
+                          </h4>
+                          <div className="space-y-2">
+                            <div>
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">Morning</span>
+                              <p className="text-xs text-slate-900">{thermalData.sunlight_exposure.morning}</p>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">Afternoon</span>
+                              <p className="text-xs text-slate-900">{thermalData.sunlight_exposure.afternoon}</p>
+                            </div>
+                            <div className="pt-2 border-t border-slate-100">
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">Overall Rating</span>
+                              <p className="text-sm font-bold text-amber-600">{thermalData.sunlight_exposure.overall_rating}</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 flex items-center gap-1">
+                            <Thermometer size={12} className="text-rose-500" />
+                            Thermal Efficiency
+                          </h4>
+                          <div className="space-y-2">
+                            <div>
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">Summer Heat Gain</span>
+                              <p className="text-xs text-slate-900">{thermalData.thermal_efficiency.summer_heat_gain}</p>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-500 font-bold uppercase">Winter Heat Loss</span>
+                              <p className="text-xs text-slate-900">{thermalData.thermal_efficiency.winter_heat_loss}</p>
+                            </div>
+                            <div className="pt-2 border-t border-slate-100">
+                              <p className="text-[11px] text-slate-500 italic">{thermalData.thermal_efficiency.details}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                        <div className="bg-slate-900 px-4 py-2">
+                          <span className="text-white font-bold text-sm">Window Analysis</span>
+                        </div>
+                        <div className="p-0">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-slate-50 border-b border-slate-200">
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">Location</th>
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">Size</th>
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">Orientation</th>
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">Impact</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {thermalData.window_analysis.map((win, idx) => (
+                                <tr key={idx} className="border-b border-slate-100 last:border-0">
+                                  <td className="px-4 py-2 text-xs font-medium text-slate-900">{win.location}</td>
+                                  <td className="px-4 py-2 text-xs text-slate-600">{win.size_estimate}</td>
+                                  <td className="px-4 py-2 text-xs text-slate-600">{win.orientation}</td>
+                                  <td className="px-4 py-2 text-xs text-slate-600">{win.impact}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-rose-50 border border-rose-100 rounded-xl p-4">
+                          <h4 className="text-[10px] font-bold text-rose-700 uppercase mb-1">Summer Cooling Impact</h4>
+                          <p className="text-xs font-bold text-rose-900">{thermalData.estimated_cost_impact.summer_cooling}</p>
+                        </div>
+                        <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                          <h4 className="text-[10px] font-bold text-blue-700 uppercase mb-1">Winter Heating Impact</h4>
+                          <p className="text-xs font-bold text-blue-900">{thermalData.estimated_cost_impact.winter_heating}</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
+                        <h4 className="text-[10px] font-bold text-amber-700 uppercase mb-2">Design Recommendations</h4>
+                        <ul className="space-y-1">
+                          {thermalData.recommendations.map((rec, idx) => (
+                            <li key={idx} className="text-xs text-amber-900 flex items-start gap-2">
+                              <span className="mt-1 w-1 h-1 rounded-full bg-amber-400 shrink-0" />
+                              {rec}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                      <Sun size={24} className="mb-2 opacity-50" />
+                      <p className="text-xs font-medium">상단의 '일조/열효율 체크' 버튼을 눌러 분석을 시작하세요.</p>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -406,9 +620,9 @@ export default function App() {
                 </div>
               </div>
             )}
-            
+
             {messages.map((msg, i) => (
-              <motion.div 
+              <motion.div
                 key={i}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -419,8 +633,8 @@ export default function App() {
               >
                 <div className={cn(
                   "px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm",
-                  msg.role === 'user' 
-                    ? "bg-slate-900 text-white rounded-tr-none" 
+                  msg.role === 'user'
+                    ? "bg-slate-900 text-white rounded-tr-none"
                     : "bg-white border border-slate-200 text-slate-800 rounded-tl-none"
                 )}>
                   <div className="prose prose-sm max-w-none prose-invert">
@@ -445,14 +659,14 @@ export default function App() {
           {/* Chat Input */}
           <div className="p-4 bg-white border-t border-slate-200 shrink-0">
             <form onSubmit={handleSendMessage} className="relative">
-              <input 
+              <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="설계에 대해 질문해 주세요..."
                 className="w-full bg-slate-100 border-none rounded-xl py-4 pl-5 pr-14 text-sm focus:ring-2 focus:ring-slate-900 transition-all placeholder:text-slate-400"
               />
-              <button 
+              <button
                 type="submit"
                 disabled={!input.trim() || isChatLoading}
                 className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 bg-slate-900 text-white rounded-lg flex items-center justify-center hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-900 transition-all"

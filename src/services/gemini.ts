@@ -2,6 +2,13 @@ import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
+function getBase64Data(dataUrl: string): string {
+  if (dataUrl.includes(',')) {
+    return dataUrl.split(',')[1];
+  }
+  return dataUrl;
+}
+
 export interface WheelchairAnalysis {
   floor_analysis: Array<{
     floor: string;
@@ -150,7 +157,7 @@ export async function chatWithAgent(message: string, history: any[], imageData?:
   if (imageData) {
     parts.push({
       inlineData: {
-        data: imageData.data.split(',')[1],
+        data: getBase64Data(imageData.data),
         mimeType: imageData.mimeType
       }
     });

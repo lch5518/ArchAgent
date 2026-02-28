@@ -78,13 +78,21 @@ export default function App() {
       let dataToAnalyze = imgData;
       // If it's a URL, we need to fetch it and convert to base64 for Gemini
       if (imgData.startsWith('http')) {
-        const response = await fetch(imgData);
-        const blob = await response.blob();
-        dataToAnalyze = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(blob);
-        });
+        try {
+          const response = await window.fetch(imgData, { mode: 'cors' });
+          const blob = await response.blob();
+          dataToAnalyze = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } catch (e) {
+          console.error("Fetch failed, attempting to use image directly", e);
+          // Fallback: if fetch fails (CORS), we might just have to hope the model can't see it
+          // or handle it differently. But for Gemini we NEED the data.
+          throw new Error("이미지를 가져오는데 실패했습니다. CORS 정책 때문일 수 있습니다. 직접 업로드해 주세요.");
+        }
       }
       
       const result = await analyzeDrawing(dataToAnalyze, type);
@@ -109,13 +117,18 @@ export default function App() {
     try {
       let dataToAnalyze = image;
       if (image.startsWith('http')) {
-        const response = await fetch(image);
-        const blob = await response.blob();
-        dataToAnalyze = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(blob);
-        });
+        try {
+          const response = await window.fetch(image, { mode: 'cors' });
+          const blob = await response.blob();
+          dataToAnalyze = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } catch (e) {
+          throw new Error("이미지를 가져오는데 실패했습니다. 직접 업로드한 도면으로 시도해 주세요.");
+        }
       }
       const data = await checkWheelchairAccessibility(dataToAnalyze, mimeType);
       setWheelchairData(data);
@@ -187,27 +200,19 @@ export default function App() {
         <div className="flex items-center gap-4">
           <button 
             onClick={() => {
-              // Using a high-quality architectural floor plan sample
-              const sampleUrl = "https://images.unsplash.com/photo-1503387762-592dec58ef4e?q=80&w=2000&auto=format&fit=crop";
+              // Using the user-provided sample floor plan
+              const sampleUrl = "https://ffec4799543d6a07e91676463267a7ad488855b70f48fe28eb14ea1-apidata.googleusercontent.com/download/storage/v1/b/archagent/o/sample_img%2Fsample.PNG?jk=AR8mTxA_dbg6R3VwLRRLoUcDR0Q_t6TWLQO5NPtyhdgr3OH_Z2cVjIVlVIAXlWEG-xTKYJzVSJ4NJACEJ2tiDrkoe8bHqALHMiVVV_oXdo8vncjrHeyEVAZr3oZ2QmY-oaFwCSkVETW8nI7cE_v2o8yiwjHmCwKVa_nuz6paNAoB2lXOX_o1wB0uF0U_ZZ0GmaQlD0UPKtqmVLicIBgdwlRyFgxQ64MWlVJu8h_J7p3Jx-4oEXxI9ZuCPmYL8u8bCP3R3g4nY7HaC1vdQLKofY0Ih4GAvsYkDBVOyS0gMDeIhMGfauZpRb48AL8H08fcUGgKpSF8HLJKrX8yhxJCoMnB2HIlyYIHnEjxL3AmPD_sR6Nx7qFmcfFODmTvohV-celC1RQCzBMprUqUTYceAWU5G9q7toufuSmZSrIMa2j8T6nU_dfo9m5p0nzim0EZetrC6tvFqikQQVBUc-eW8BJTFVrU3xr7H0MZsxwGan9hJ34svCKFhUAzCCTDOKR96zMXHyVn3_JWdMH5AVyDpCojfSO2WjZk0hpUPe7PsC9vhvVnFIeBo9HAGChT3oubXTKlNdnY2B7ZYyTe3rubH_akMeJZobJRizT1rIN5YIDXv4Y032mzNgaRHi_pycMo3RwUj81f1jP3RRkT76Nlg02Wpf_ZWyD_UKLQaS-zCxYwHRinvrlUg1l7l4WerCGUXQprsKpPiDPgv37p35B68F3ydRTGxVhkGe_TUClotopgEeyfTYHQ5-kKtwvOVm0qgafHRiB8WOnUkU9RWNsTEDoMgvY1zi1N6cVhkvBIP-OhxQ2M4Lcbk2KOpXs4_viyX-oXg8u-aBEGI3ALjlMNqZFW7C8ic9o0Bppxd7kAyFzXeAWmAWydD_BdYrRvTOljjh2cbqSLPoPSF_h5Rq3G1RGmkmtq-2A7FErEX-7ouxcQ9NrnP7NPbNsUPPpToDHyFwGfKpfyCkrzTTgJhQdHz_umDsbwxkXmPHKbNYnXtr6BFW0QymiuN-XGapra5g0omcYZnjV45d0mwFGm6UpcemxY_jBGAwnECM24paxaV0gYGoGI1o33B6Sg6FdrNfeuyyRBpiwLCOnH-KzeNw0iP2QVZm5oljvF30XCe45yiGrhtGgNTO_aj9u9YlPrhaKeVe6pJHNiIq0vHb5Us8EUxzBveiED2rY&isca=1";
               setImage(sampleUrl);
-              setMimeType("image/jpeg");
+              setMimeType("image/png");
               setAnalysis(null);
               setWheelchairData(null);
-              handleAnalyze(sampleUrl, "image/jpeg");
+              handleAnalyze(sampleUrl, "image/png");
             }}
             disabled={isAnalyzing}
             className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors disabled:opacity-50"
           >
             <Layout size={16} />
             샘플 도면
-          </button>
-          <button 
-            onClick={handleWheelchairCheck}
-            disabled={!image || isAnalyzing}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
-          >
-            <CheckCircle2 size={16} />
-            휠체어 접근성 체크
           </button>
           <button 
             onClick={() => fileInputRef.current?.click()}
@@ -315,10 +320,20 @@ export default function App() {
               ) : (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-bold uppercase tracking-widest text-emerald-600 flex items-center gap-2">
-                      <CheckCircle2 size={16} />
-                      휠체어 접근성 준수 데이터
-                    </h2>
+                    <div className="flex items-center gap-4">
+                      <h2 className="text-sm font-bold uppercase tracking-widest text-emerald-600 flex items-center gap-2">
+                        <CheckCircle2 size={16} />
+                        휠체어 접근성 준수 데이터
+                      </h2>
+                      <button 
+                        onClick={handleWheelchairCheck}
+                        disabled={!image || isAnalyzing}
+                        className="flex items-center gap-2 px-3 py-1 bg-emerald-600 text-white rounded-md text-[10px] font-bold uppercase hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                      >
+                        <CheckCircle2 size={12} />
+                        체크 실행
+                      </button>
+                    </div>
                     {isAnalyzing && activeTab === 'wheelchair' && <Loader2 size={14} className="animate-spin text-emerald-600" />}
                   </div>
 

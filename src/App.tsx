@@ -150,6 +150,41 @@ export default function App() {
     }
   };
 
+  const handleThermalCheck = async () => {
+    if (!image) return;
+    setIsAnalyzing(true);
+    setActiveTab('thermal');
+    try {
+      let dataToAnalyze = image;
+      if (image.startsWith('http')) {
+        const res = await fetch(image);
+        const blob = await res.blob();
+        dataToAnalyze = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+      const data = await checkThermalEfficiency(dataToAnalyze, mimeType);
+      setThermalData(data);
+      setMessages(prev => [...prev, {
+        role: 'agent',
+        content: "일조량 및 열효율 분석이 완료되었습니다. 상세 데이터를 확인해 주세요.",
+        timestamp: new Date()
+      }]);
+    } catch (error) {
+      console.error(error);
+      setMessages(prev => [...prev, {
+        role: 'agent',
+        content: "열효율 분석 중 오류가 발생했습니다.",
+        timestamp: new Date()
+      }]);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!input.trim() || isChatLoading) return;
@@ -199,47 +234,6 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <button
-            onClick={async () => {
-              if (!image) return;
-              setIsAnalyzing(true);
-              setActiveTab('thermal');
-              try {
-                let dataToAnalyze = image;
-                if (image.startsWith('http')) {
-                  const res = await fetch(image);
-                  const blob = await res.blob();
-                  dataToAnalyze = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result as string);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(blob);
-                  });
-                }
-                const data = await checkThermalEfficiency(dataToAnalyze, mimeType);
-                setThermalData(data);
-                setMessages(prev => [...prev, {
-                  role: 'agent',
-                  content: "일조량 및 열효율 분석이 완료되었습니다. 상세 데이터를 확인해 주세요.",
-                  timestamp: new Date()
-                }]);
-              } catch (error) {
-                console.error(error);
-                setMessages(prev => [...prev, {
-                  role: 'agent',
-                  content: "열효율 분석 중 오류가 발생했습니다.",
-                  timestamp: new Date()
-                }]);
-              } finally {
-                setIsAnalyzing(false);
-              }
-            }}
-            disabled={!image || isAnalyzing}
-            className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors disabled:opacity-50"
-          >
-            <Sun size={16} />
-            일조/열효율 체크
-          </button>
           <button
             onClick={() => {
               // Using the user-provided sample floor plan
@@ -371,11 +365,11 @@ export default function App() {
               ) : activeTab === 'wheelchair' ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <h2 className="text-sm font-bold uppercase tracking-widest text-emerald-600 flex items-center gap-2">
-                        <CheckCircle2 size={16} />
-                        휠체어 접근성 준수 데이터
-                      </h2>
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-emerald-600 flex items-center gap-2">
+                      <CheckCircle2 size={16} />
+                      휠체어 접근성 준수 데이터
+                    </h2>
+                    <div className="flex items-center gap-2">
                       <button
                         onClick={handleWheelchairCheck}
                         disabled={!image || isAnalyzing}
@@ -384,8 +378,8 @@ export default function App() {
                         <CheckCircle2 size={12} />
                         체크 실행
                       </button>
+                      {isAnalyzing && activeTab === 'wheelchair' && <Loader2 size={14} className="animate-spin text-emerald-600" />}
                     </div>
-                    {isAnalyzing && activeTab === 'wheelchair' && <Loader2 size={14} className="animate-spin text-emerald-600" />}
                   </div>
 
                   {wheelchairData ? (
@@ -468,7 +462,17 @@ export default function App() {
                       <Sun size={16} />
                       일조량 및 열효율 분석
                     </h2>
-                    {isAnalyzing && activeTab === 'thermal' && <Loader2 size={14} className="animate-spin text-amber-600" />}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleThermalCheck}
+                        disabled={!image || isAnalyzing}
+                        className="flex items-center gap-2 px-3 py-1 bg-amber-600 text-white rounded-md text-[10px] font-bold uppercase hover:bg-amber-700 transition-colors disabled:opacity-50"
+                      >
+                        <Sun size={12} />
+                        체크 실행
+                      </button>
+                      {isAnalyzing && activeTab === 'thermal' && <Loader2 size={14} className="animate-spin text-amber-600" />}
+                    </div>
                   </div>
 
                   {thermalData ? (
@@ -569,7 +573,7 @@ export default function App() {
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
                       <Sun size={24} className="mb-2 opacity-50" />
-                      <p className="text-xs font-medium">상단의 '일조/열효율 체크' 버튼을 눌러 분석을 시작하세요.</p>
+                      <p className="text-xs font-medium">우측의 '체크 실행' 버튼을 눌러 분석을 시작하세요.</p>
                     </div>
                   )}
                 </div>

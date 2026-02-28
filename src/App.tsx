@@ -237,7 +237,7 @@ export default function App() {
           <button
             onClick={() => {
               // Using the user-provided sample floor plan
-              const sampleUrl = "https://ffec4799543d6a07e91676463267a7ad488855b70f48fe28eb14ea1-apidata.googleusercontent.com/download/storage/v1/b/archagent/o/sample_img%2Fsample.PNG?jk=AR8mTxA_dbg6R3VwLRRLoUcDR0Q_t6TWLQO5NPtyhdgr3OH_Z2cVjIVlVIAXlWEG-xTKYJzVSJ4NJACEJ2tiDrkoe8bHqALHMiVVV_oXdo8vncjrHeyEVAZr3oZ2QmY-oaFwCSkVETW8nI7cE_v2o8yiwjHmCwKVa_nuz6paNAoB2lXOX_o1wB0uF0U_ZZ0GmaQlD0UPKtqmVLicIBgdwlRyFgxQ64MWlVJu8h_J7p3Jx-4oEXxI9ZuCPmYL8u8bCP3R3g4nY7HaC1vdQLKofY0Ih4GAvsYkDBVOyS0gMDeIhMGfauZpRb48AL8H08fcUGgKpSF8HLJKrX8yhxJCoMnB2HIlyYIHnEjxL3AmPD_sR6Nx7qFmcfFODmTvohV-celC1RQCzBMprUqUTYceAWU5G9q7toufuSmZSrIMa2j8T6nU_dfo9m5p0nzim0EZetrC6tvFqikQQVBUc-eW8BJTFVrU3xr7H0MZsxwGan9hJ34svCKFhUAzCCTDOKR96zMXHyVn3_JWdMH5AVyDpCojfSO2WjZk0hpUPe7PsC9vhvVnFIeBo9HAGChT3oubXTKlNdnY2B7ZYyTe3rubH_akMeJZobJRizT1rIN5YIDXv4Y032mzNgaRHi_pycMo3RwUj81f1jP3RRkT76Nlg02Wpf_ZWyD_UKLQaS-zCxYwHRinvrlUg1l7l4WerCGUXQprsKpPiDPgv37p35B68F3ydRTGxVhkGe_TUClotopgEeyfTYHQ5-kKtwvOVm0qgafHRiB8WOnUkU9RWNsTEDoMgvY1zi1N6cVhkvBIP-OhxQ2M4Lcbk2KOpXs4_viyX-oXg8u-aBEGI3ALjlMNqZFW7C8ic9o0Bppxd7kAyFzXeAWmAWydD_BdYrRvTOljjh2cbqSLPoPSF_h5Rq3G1RGmkmtq-2A7FErEX-7ouxcQ9NrnP7NPbNsUPPpToDHyFwGfKpfyCkrzTTgJhQdHz_umDsbwxkXmPHKbNYnXtr6BFW0QymiuN-XGapra5g0omcYZnjV45d0mwFGm6UpcemxY_jBGAwnECM24paxaV0gYGoGI1o33B6Sg6FdrNfeuyyRBpiwLCOnH-KzeNw0iP2QVZm5oljvF30XCe45yiGrhtGgNTO_aj9u9YlPrhaKeVe6pJHNiIq0vHb5Us8EUxzBveiED2rY&isca=1";
+              const sampleUrl = "https://storage.googleapis.com/archagent/sample_img/sample.PNG";
               setImage(sampleUrl);
               setMimeType("image/png");
               setAnalysis(null);

@@ -215,6 +215,13 @@ app.post('/api/wheelchair', async (req, res) => {
       3. slope_and_steps: 경사로(Ramp) 존재 여부 및 문턱/단차 식별 결과
       4. disabled_facilities: 화장실 등 전용 시설의 적정성 분석
       5. overall_compliance: 휠체어 접근성 최종 적합도 (High / Medium / Low)
+      6. marker_points: 도면 위에 표시할 마커 목록
+
+      [marker_points 규칙]
+      - x, y는 도면 좌측 상단 기준 백분율 좌표(0~100)
+      - status는 반드시 "양호" 또는 "미흡"
+      - label은 짧은 한글 태그 (예: 주출입구, 문 너비)
+      - reason은 1문장 설명
     `;
 
     const response: GenerateContentResponse = await ai.models.generateContent({
@@ -283,8 +290,23 @@ app.post('/api/wheelchair', async (req, res) => {
               },
             },
             summary_recommendation: {type: Type.STRING},
+            marker_points: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  floor: {type: Type.STRING},
+                  label: {type: Type.STRING},
+                  status: {type: Type.STRING},
+                  x: {type: Type.NUMBER},
+                  y: {type: Type.NUMBER},
+                  reason: {type: Type.STRING},
+                },
+                required: ['floor', 'label', 'status', 'x', 'y', 'reason'],
+              },
+            },
           },
-          required: ['floor_analysis', 'summary_recommendation'],
+          required: ['floor_analysis', 'summary_recommendation', 'marker_points'],
         },
       },
     });

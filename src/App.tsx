@@ -245,6 +245,47 @@ export default function App() {
                     className="max-w-full max-h-full object-contain"
                     referrerPolicy="no-referrer"
                   />
+                  {activeTab === 'wheelchair' && wheelchairData && wheelchairData.marker_points.length > 0 && (
+                    <>
+                      <div className="absolute top-2 left-2 z-20 flex items-center gap-2 bg-white/90 backdrop-blur px-2 py-1 rounded-md border border-slate-200 shadow-sm text-[10px] font-bold text-slate-700">
+                        <span className="inline-flex items-center gap-1 text-emerald-700">
+                          <CheckCircle2 size={11} />
+                          양호
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-rose-700">
+                          <AlertCircle size={11} />
+                          미흡
+                        </span>
+                      </div>
+                      <div className="absolute inset-0 pointer-events-none">
+                        {wheelchairData.marker_points.map((marker, idx) => (
+                          <div
+                            key={`${marker.floor}-${marker.label}-${idx}`}
+                            className="absolute -translate-x-1/2 -translate-y-1/2 z-10"
+                            style={{ left: `${marker.x}%`, top: `${marker.y}%` }}
+                          >
+                            <div
+                              className={cn(
+                                "inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border shadow-md",
+                                marker.status === '양호'
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  : "bg-rose-50 text-rose-700 border-rose-200"
+                              )}
+                            >
+                              <span className={cn(
+                                "w-4 h-4 rounded-full inline-flex items-center justify-center text-[9px] text-white",
+                                marker.status === '양호' ? "bg-emerald-500" : "bg-rose-500"
+                              )}>
+                                {idx + 1}
+                              </span>
+                              {marker.status === '양호' ? <CheckCircle2 size={11} /> : <AlertCircle size={11} />}
+                              {marker.label}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </motion.div>
 
                 {/* Viewer Controls */}
@@ -453,6 +494,20 @@ export default function App() {
 
                   {wheelchairData ? (
                     <div className="space-y-6">
+                      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                        <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2">도면 마커 요약</h4>
+                        <div className="flex items-center gap-3">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-1">
+                            <CheckCircle2 size={12} />
+                            양호 {wheelchairData.marker_points.filter(m => m.status === '양호').length}
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2 py-1">
+                            <AlertCircle size={12} />
+                            미흡 {wheelchairData.marker_points.filter(m => m.status === '미흡').length}
+                          </span>
+                          <span className="text-[11px] text-slate-500">상단 도면에서 번호 태그로 위치를 확인하세요.</span>
+                        </div>
+                      </div>
                       {wheelchairData.floor_analysis.map((floor, idx) => (
                         <div key={idx} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                           <div className="bg-slate-900 px-4 py-2 flex items-center justify-between">

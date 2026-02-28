@@ -28,12 +28,15 @@ async function requestJson<T>(path: string, body: unknown): Promise<T> {
   }
 
   if (!response.ok) {
+    const contentType = response.headers.get('content-type') || '';
     const error =
       typeof payload === 'object' &&
       payload !== null &&
       'error' in payload &&
       typeof (payload as { error: unknown }).error === 'string'
         ? (payload as { error: string }).error
+        : response.status >= 500 && contentType.includes('text/plain')
+          ? '백엔드 서버 연결에 실패했습니다. `npm run dev:server` 실행 상태를 확인해 주세요.'
         : response.status >= 500
           ? '서버 내부 오류가 발생했습니다. 백엔드 로그를 확인해 주세요.'
           : `요청 실패 (${response.status})`;
@@ -53,6 +56,14 @@ export interface WheelchairAnalysis {
     compliance_level: string;
   }>;
   summary_recommendation: string;
+  marker_points: Array<{
+    floor: string;
+    label: string;
+    status: '양호' | '미흡';
+    x: number;
+    y: number;
+    reason: string;
+  }>;
 }
 
 export interface ThermalAnalysis {
@@ -116,12 +127,75 @@ function normalizeWheelchairAnalysis(input: unknown): WheelchairAnalysis {
     };
   });
 
+  const markerRaw = Array.isArray(data.marker_points) ? data.marker_points : [];
+  const marker_points = markerRaw
+    .map((item, idx) => {
+      const marker = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+      const statusSource = typeof marker.status === 'string' ? marker.status : '';
+      const statusRaw: '양호' | '미흡' | null =
+        statusSource === '양호' || statusSource === '미흡' ? statusSource : null;
+      const xRaw = typeof marker.x === 'number' ? marker.x : Number(marker.x);
+      const yRaw = typeof marker.y === 'number' ? marker.y : Number(marker.y);
+
+      if (!statusRaw || Number.isNaN(xRaw) || Number.isNaN(yRaw)) {
+        return null;
+      }
+
+      return {
+        floor: typeof marker.floor === 'string' ? marker.floor : `${idx + 1}층`,
+        label: typeof marker.label === 'string' ? marker.label : '점검 지점',
+        status: statusRaw,
+        x: Math.max(2, Math.min(98, xRaw)),
+        y: Math.max(2, Math.min(98, yRaw)),
+        reason: typeof marker.reason === 'string' ? marker.reason : '세부 설명 없음',
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+
+  const fallbackMarkers: WheelchairAnalysis['marker_points'] = [];
+  const primaryFloor = floor_analysis[0];
+  if (primaryFloor) {
+    fallbackMarkers.push({
+      floor: primaryFloor.floor,
+      label: '주출입구',
+      status: primaryFloor.entry_access.elevator_exists ? '양호' : '미흡',
+      x: 18,
+      y: 20,
+      reason: primaryFloor.entry_access.description,
+    });
+    fallbackMarkers.push({
+      floor: primaryFloor.floor,
+      label: '문 너비',
+      status: primaryFloor.path_dimensions.door_width_ok ? '양호' : '미흡',
+      x: 60,
+      y: 24,
+      reason: primaryFloor.path_dimensions.details,
+    });
+    fallbackMarkers.push({
+      floor: primaryFloor.floor,
+      label: '회전 공간',
+      status: primaryFloor.path_dimensions.turning_space_ok ? '양호' : '미흡',
+      x: 32,
+      y: 66,
+      reason: primaryFloor.path_dimensions.details,
+    });
+    fallbackMarkers.push({
+      floor: primaryFloor.floor,
+      label: '장애인 화장실',
+      status: primaryFloor.disabled_facilities.accessible_toilet ? '양호' : '미흡',
+      x: 74,
+      y: 62,
+      reason: primaryFloor.disabled_facilities.details,
+    });
+  }
+
   return {
     floor_analysis,
     summary_recommendation:
       typeof data.summary_recommendation === 'string'
         ? data.summary_recommendation
         : '요약 권장 사항이 없습니다.',
+    marker_points: marker_points.length > 0 ? marker_points : fallbackMarkers,
   };
 }
 

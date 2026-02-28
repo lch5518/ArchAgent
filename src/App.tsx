@@ -9,6 +9,10 @@ import {
   MessageSquare,
   CheckCircle2,
   AlertCircle,
+  Flame,
+  ShieldAlert,
+  Route,
+  Wind,
   Maximize2,
   Send,
   FileText,
@@ -24,7 +28,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
-import { analyzeDrawing, chatWithAgent, checkWheelchairAccessibility, checkThermalEfficiency, type GeneralAnalysis, type WheelchairAnalysis, type ThermalAnalysis } from './services/gemini';
+import { analyzeDrawing, chatWithAgent, checkFireSafety, checkWheelchairAccessibility, checkThermalEfficiency, type FireAnalysis, type GeneralAnalysis, type WheelchairAnalysis, type ThermalAnalysis } from './services/gemini';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -46,12 +50,13 @@ export default function App() {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [wheelchairData, setWheelchairData] = useState<WheelchairAnalysis | null>(null);
   const [thermalData, setThermalData] = useState<ThermalAnalysis | null>(null);
+  const [fireData, setFireData] = useState<FireAnalysis | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
-  const [activeTab, setActiveTab] = useState<'general' | 'wheelchair' | 'thermal'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'wheelchair' | 'thermal' | 'fire'>('general');
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -71,6 +76,8 @@ export default function App() {
         setAnalysis(null);
         setAnalysisError(null);
         setWheelchairData(null);
+        setThermalData(null);
+        setFireData(null);
         handleAnalyze(base64, file.type);
       };
       reader.readAsDataURL(file);
@@ -145,6 +152,30 @@ export default function App() {
     }
   };
 
+  const handleFireCheck = async () => {
+    if (!image) return;
+    setIsAnalyzing(true);
+    setActiveTab('fire');
+    try {
+      const data = await checkFireSafety(image, mimeType);
+      setFireData(data);
+      setMessages(prev => [...prev, {
+        role: 'agent',
+        content: "화재 확산/대피 분석이 완료되었습니다. 가장 안전한 대피 경로를 확인해 주세요.",
+        timestamp: new Date()
+      }]);
+    } catch (error) {
+      console.error(error);
+      setMessages(prev => [...prev, {
+        role: 'agent',
+        content: "화재 확산 분석 중 오류가 발생했습니다.",
+        timestamp: new Date()
+      }]);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!input.trim() || isChatLoading) return;
@@ -203,6 +234,8 @@ export default function App() {
               setAnalysis(null);
               setAnalysisError(null);
               setWheelchairData(null);
+              setThermalData(null);
+              setFireData(null);
               handleAnalyze(sampleUrl, "image/png");
             }}
             disabled={isAnalyzing}
@@ -325,6 +358,57 @@ export default function App() {
                       </div>
                     </>
                   )}
+                  {activeTab === 'fire' && fireData && fireData.route_points.length > 0 && (
+                    <>
+                      <div className="absolute top-2 right-2 z-20 flex items-center gap-2 bg-white/90 backdrop-blur px-2 py-1 rounded-md border border-slate-200 shadow-sm text-[10px] font-bold text-slate-700">
+                        <span className="inline-flex items-center gap-1 text-emerald-700">
+                          <CheckCircle2 size={11} />
+                          안전
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-amber-700">
+                          <AlertCircle size={11} />
+                          주의
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-rose-700">
+                          <ShieldAlert size={11} />
+                          위험
+                        </span>
+                      </div>
+                      <div className="absolute inset-0 pointer-events-none z-20">
+                        {fireData.route_points.map((point, idx) => (
+                          <div
+                            key={`${point.route_name}-${point.label}-${idx}`}
+                            className="absolute -translate-x-1/2 -translate-y-1/2"
+                            style={{ left: `${point.x}%`, top: `${point.y}%` }}
+                          >
+                            <div
+                              className={cn(
+                                "inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border shadow-md bg-white/95",
+                                point.status === '안전'
+                                  ? "text-emerald-700 border-emerald-200"
+                                  : point.status === '주의'
+                                    ? "text-amber-700 border-amber-200"
+                                    : "text-rose-700 border-rose-200"
+                              )}
+                            >
+                              <span className={cn(
+                                "w-4 h-4 rounded-full inline-flex items-center justify-center text-[9px] text-white",
+                                point.status === '안전'
+                                  ? "bg-emerald-500"
+                                  : point.status === '주의'
+                                    ? "bg-amber-500"
+                                    : "bg-rose-500"
+                              )}>
+                                {idx + 1}
+                              </span>
+                              {point.status === '안전' ? <CheckCircle2 size={11} /> : point.status === '주의' ? <AlertCircle size={11} /> : <ShieldAlert size={11} />}
+                              {point.label}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </motion.div>
 
                 {/* Viewer Controls */}
@@ -378,6 +462,15 @@ export default function App() {
                 )}
               >
                 일조/열효율
+              </button>
+              <button
+                onClick={() => setActiveTab('fire')}
+                className={cn(
+                  "px-6 py-3 text-xs font-bold uppercase tracking-widest transition-colors border-b-2",
+                  activeTab === 'fire' ? "border-rose-600 text-rose-600 bg-white" : "border-transparent text-slate-400 hover:text-slate-600"
+                )}
+              >
+                화재 확산/대피
               </button>
             </div>
 
@@ -618,7 +711,7 @@ export default function App() {
                     </div>
                   )}
                 </div>
-              ) : (
+              ) : activeTab === 'thermal' ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <h2 className="text-sm font-bold uppercase tracking-widest text-amber-600 flex items-center gap-2">
@@ -748,6 +841,192 @@ export default function App() {
                     <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
                       <Sun size={24} className="mb-2 opacity-50" />
                       <p className="text-xs font-medium">우측의 '체크 실행' 버튼을 눌러 분석을 시작하세요.</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-rose-600 flex items-center gap-2">
+                      <Flame size={16} />
+                      화재 확산/대피 분석
+                    </h2>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleFireCheck}
+                        disabled={!image || isAnalyzing}
+                        className="flex items-center gap-2 px-3 py-1 bg-rose-600 text-white rounded-md text-[10px] font-bold uppercase hover:bg-rose-700 transition-colors disabled:opacity-50"
+                      >
+                        <Flame size={12} />
+                        체크 실행
+                      </button>
+                      {isAnalyzing && activeTab === 'fire' && <Loader2 size={14} className="animate-spin text-rose-600" />}
+                    </div>
+                  </div>
+
+                  {fireData ? (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">화재 위험도</p>
+                          <span className={cn(
+                            "inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-bold",
+                            fireData.fire_risk_level === '낮음'
+                              ? "bg-emerald-100 text-emerald-700"
+                              : fireData.fire_risk_level === '보통'
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-rose-100 text-rose-700"
+                          )}>
+                            <ShieldAlert size={12} />
+                            {fireData.fire_risk_level}
+                          </span>
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">연기 확산 속도</p>
+                          <p className="text-lg font-black text-slate-900">{fireData.smoke_spread.predicted_speed_mps.toFixed(2)} m/s</p>
+                          <p className="text-[11px] text-slate-500 mt-1">{fireData.smoke_spread.major_direction}</p>
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">최적 대피 경로</p>
+                          <p className="text-xs font-bold text-rose-700">{fireData.safest_route.name}</p>
+                          <p className="text-[11px] text-slate-500 mt-1">{fireData.safest_route.reason}</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-3 flex items-center gap-1">
+                            <ShieldAlert size={12} className="text-rose-500" />
+                            벽체 재질/내화 분석
+                          </h4>
+                          {fireData.wall_material_assessment.length > 0 ? (
+                            <div className="space-y-2">
+                              {fireData.wall_material_assessment.map((wall, idx) => (
+                                <div key={idx} className="border border-slate-100 rounded-lg p-3 bg-slate-50/50">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-xs font-bold text-slate-800">{wall.zone}</p>
+                                    <span className="text-[10px] font-bold text-slate-500">{wall.material}</span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-600 mt-1">내화성: {wall.fire_resistance}</p>
+                                  <p className="text-[11px] text-slate-500 mt-0.5">{wall.risk_note}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-500">벽체 분석 결과가 없습니다.</p>
+                          )}
+                        </div>
+
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-3 flex items-center gap-1">
+                            <Wind size={12} className="text-sky-500" />
+                            환기/연기 확산 분석
+                          </h4>
+                          <div className="space-y-2 text-xs">
+                            <p className="text-slate-700">
+                              배연 설비: <span className="font-bold">{fireData.ventilation_assessment.smoke_exhaust_present ? '있음' : '없음'}</span>
+                            </p>
+                            <p className="text-slate-700">압력 구역: {fireData.ventilation_assessment.pressure_zones}</p>
+                            <p className="text-slate-700">확산 요인: {fireData.ventilation_assessment.spread_factor}</p>
+                            <p className="text-[11px] text-slate-500">{fireData.ventilation_assessment.detail}</p>
+                          </div>
+                          <div className="mt-3 border-t border-slate-100 pt-3">
+                            <p className="text-[10px] font-bold text-slate-500 uppercase mb-2">시간대별 영향</p>
+                            <div className="space-y-2">
+                              {fireData.smoke_spread.timeline.map((point, idx) => (
+                                <div key={idx} className="flex items-start gap-2 text-[11px]">
+                                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-bold">{point.minute}분</span>
+                                  <span className="text-slate-700">{point.affected_zones}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                        <div className="bg-slate-900 px-4 py-2">
+                          <span className="text-white font-bold text-sm flex items-center gap-1">
+                            <Route size={14} />
+                            대피 경로 비교
+                          </span>
+                        </div>
+                        <div className="p-0">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-slate-50 border-b border-slate-200">
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">경로</th>
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">예상시간(초)</th>
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">안전점수</th>
+                                <th className="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">병목구간</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {fireData.evacuation_routes.map((route, idx) => (
+                                <tr key={idx} className="border-b border-slate-100 last:border-0">
+                                  <td className="px-4 py-2 text-xs font-medium text-slate-900">
+                                    <p>{route.name}</p>
+                                    <p className="text-[11px] text-slate-500 mt-0.5">{route.path}</p>
+                                  </td>
+                                  <td className="px-4 py-2 text-xs text-slate-700">{route.estimated_time_sec}</td>
+                                  <td className="px-4 py-2 text-xs font-bold text-rose-700">{route.safety_score}</td>
+                                  <td className="px-4 py-2 text-xs text-slate-600">{route.bottleneck}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-rose-50 border border-rose-100 rounded-xl p-4">
+                          <h4 className="text-[10px] font-bold text-rose-700 uppercase mb-2">최적 대피 절차</h4>
+                          <p className="text-xs font-bold text-rose-900 mb-2">{fireData.safest_route.name}</p>
+                          <ul className="space-y-1">
+                            {fireData.safest_route.step_by_step.map((step, idx) => (
+                              <li key={idx} className="text-xs text-rose-900 flex items-start gap-2">
+                                <span className="mt-0.5 w-4 h-4 rounded-full bg-rose-200 text-rose-800 inline-flex items-center justify-center text-[10px] font-bold">{idx + 1}</span>
+                                {step}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2">도면 경로 마커</h4>
+                          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
+                              <CheckCircle2 size={11} />
+                              안전 {fireData.route_points.filter(p => p.status === '안전').length}
+                            </span>
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-bold">
+                              <AlertCircle size={11} />
+                              주의 {fireData.route_points.filter(p => p.status === '주의').length}
+                            </span>
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-bold">
+                              <ShieldAlert size={11} />
+                              위험 {fireData.route_points.filter(p => p.status === '위험').length}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-2">상단 도면에서 번호 마커로 대피 경로 위험 구간을 확인하세요.</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-rose-50 border border-rose-100 rounded-xl p-4">
+                        <h4 className="text-[10px] font-bold text-rose-700 uppercase mb-2">개선 권장 사항</h4>
+                        <ul className="space-y-1">
+                          {fireData.recommendations.map((rec, idx) => (
+                            <li key={idx} className="text-xs text-rose-900 flex items-start gap-2">
+                              <span className="mt-1 w-1 h-1 rounded-full bg-rose-400 shrink-0" />
+                              {rec}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                      <Flame size={24} className="mb-2 opacity-50" />
+                      <p className="text-xs font-medium">우측의 '체크 실행' 버튼을 눌러 화재 확산 경로와 대피로를 분석하세요.</p>
                     </div>
                   )}
                 </div>

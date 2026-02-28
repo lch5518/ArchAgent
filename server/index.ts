@@ -446,6 +446,196 @@ app.post('/api/thermal', async (req, res) => {
   }
 });
 
+app.post('/api/fire', async (req, res) => {
+  try {
+    const {imageData, mimeType} = req.body ?? {};
+    if (typeof imageData !== 'string') {
+      return res.status(400).json({error: 'imageData is required.'});
+    }
+
+    const ai = getAiClient();
+    const normalized = await normalizeImageData(imageData, mimeType);
+    const prompt = `
+      [도면 분석 미션: 화재 확산 경로 예측 및 대피로 제안]
+      첨부된 도면을 보고 벽체 재질/구획과 환기 시스템을 분석해 화재 시 연기 확산 특성을 평가해줘.
+      출력 언어는 반드시 한국어만 사용해줘.
+      반드시 아래 JSON 스키마 형식으로만 답변해줘.
+
+      [분석 항목]
+      1. fire_risk_level: 전체 화재 위험도 (낮음/보통/높음)
+      2. wall_material_assessment: 구역별 벽체 재질과 내화 성능, 위험 노트
+      3. ventilation_assessment: 배연 설비 유무, 압력 구역, 확산 요인
+      4. smoke_spread: 연기 확산 속도(m/s), 주요 확산 방향, 시간대별 영향 구역
+      5. evacuation_routes: 후보 대피 경로와 예상 대피 시간, 안전 점수
+      6. safest_route: 최적 대피 경로와 이유, 단계별 대피 절차
+      7. recommendations: 개선 권장 사항
+      8. route_points: 도면 오버레이용 경로 좌표
+
+      [route_points 규칙]
+      - x, y: 도면 좌상단 기준 백분율 좌표 (0~100)
+      - status: 반드시 "안전" 또는 "주의" 또는 "위험"
+      - label: 한글 짧은 태그 (예: 출발, 계단실, 외부출구)
+      - note: 1문장 설명
+    `;
+
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model,
+      contents: {
+        parts: [
+          {inlineData: {data: normalized.data, mimeType: normalized.mimeType}},
+          {text: prompt},
+        ],
+      },
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            fire_risk_level: {type: Type.STRING},
+            wall_material_assessment: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  zone: {type: Type.STRING},
+                  material: {type: Type.STRING},
+                  fire_resistance: {type: Type.STRING},
+                  risk_note: {type: Type.STRING},
+                },
+                required: ['zone', 'material', 'fire_resistance', 'risk_note'],
+              },
+            },
+            ventilation_assessment: {
+              type: Type.OBJECT,
+              properties: {
+                smoke_exhaust_present: {type: Type.BOOLEAN},
+                pressure_zones: {type: Type.STRING},
+                spread_factor: {type: Type.STRING},
+                detail: {type: Type.STRING},
+              },
+              required: ['smoke_exhaust_present', 'pressure_zones', 'spread_factor', 'detail'],
+            },
+            smoke_spread: {
+              type: Type.OBJECT,
+              properties: {
+                predicted_speed_mps: {type: Type.NUMBER},
+                major_direction: {type: Type.STRING},
+                timeline: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      minute: {type: Type.NUMBER},
+                      affected_zones: {type: Type.STRING},
+                    },
+                    required: ['minute', 'affected_zones'],
+                  },
+                },
+              },
+              required: ['predicted_speed_mps', 'major_direction', 'timeline'],
+            },
+            evacuation_routes: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: {type: Type.STRING},
+                  path: {type: Type.STRING},
+                  estimated_time_sec: {type: Type.NUMBER},
+                  safety_score: {type: Type.NUMBER},
+                  bottleneck: {type: Type.STRING},
+                },
+                required: ['name', 'path', 'estimated_time_sec', 'safety_score', 'bottleneck'],
+              },
+            },
+            safest_route: {
+              type: Type.OBJECT,
+              properties: {
+                name: {type: Type.STRING},
+                reason: {type: Type.STRING},
+                step_by_step: {
+                  type: Type.ARRAY,
+                  items: {type: Type.STRING},
+                },
+              },
+              required: ['name', 'reason', 'step_by_step'],
+            },
+            recommendations: {
+              type: Type.ARRAY,
+              items: {type: Type.STRING},
+            },
+            route_points: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  route_name: {type: Type.STRING},
+                  label: {type: Type.STRING},
+                  status: {type: Type.STRING},
+                  x: {type: Type.NUMBER},
+                  y: {type: Type.NUMBER},
+                  note: {type: Type.STRING},
+                },
+                required: ['route_name', 'label', 'status', 'x', 'y', 'note'],
+              },
+            },
+          },
+          required: [
+            'fire_risk_level',
+            'wall_material_assessment',
+            'ventilation_assessment',
+            'smoke_spread',
+            'evacuation_routes',
+            'safest_route',
+            'recommendations',
+            'route_points',
+          ],
+        },
+      },
+    });
+
+    const text = response.text || '{}';
+    let data: unknown;
+    try {
+      data = parseModelJson(text);
+    } catch {
+      data = {
+        fire_risk_level: '보통',
+        wall_material_assessment: [],
+        ventilation_assessment: {
+          smoke_exhaust_present: false,
+          pressure_zones: '정보 없음',
+          spread_factor: '정보 없음',
+          detail: text || '환기 정보 분석 실패',
+        },
+        smoke_spread: {
+          predicted_speed_mps: 0.8,
+          major_direction: '정보 없음',
+          timeline: [
+            {minute: 2, affected_zones: '발화 구역 주변'},
+            {minute: 5, affected_zones: '중앙 복도'},
+            {minute: 8, affected_zones: '계단실 접근 구간'},
+          ],
+        },
+        evacuation_routes: [],
+        safest_route: {
+          name: '기본 대피 경로',
+          reason: '상세 데이터 부족으로 기본 경로를 제안',
+          step_by_step: ['가장 가까운 비상통로 확인', '계단을 통해 하향 대피', '외부 안전지대로 이동'],
+        },
+        recommendations: [],
+        route_points: [],
+      };
+    }
+
+    return res.json(data);
+  } catch (error) {
+    console.error(error);
+    const message = error instanceof Error ? error.message : 'Fire safety analysis failed.';
+    return res.status(500).json({error: message});
+  }
+});
+
 app.post('/api/chat', async (req, res) => {
   try {
     const {message, history, imageData} = req.body ?? {

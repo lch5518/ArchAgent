@@ -97,6 +97,51 @@ export interface ThermalAnalysis {
   }>;
 }
 
+export interface FireAnalysis {
+  fire_risk_level: '낮음' | '보통' | '높음';
+  wall_material_assessment: Array<{
+    zone: string;
+    material: string;
+    fire_resistance: string;
+    risk_note: string;
+  }>;
+  ventilation_assessment: {
+    smoke_exhaust_present: boolean;
+    pressure_zones: string;
+    spread_factor: string;
+    detail: string;
+  };
+  smoke_spread: {
+    predicted_speed_mps: number;
+    major_direction: string;
+    timeline: Array<{
+      minute: number;
+      affected_zones: string;
+    }>;
+  };
+  evacuation_routes: Array<{
+    name: string;
+    path: string;
+    estimated_time_sec: number;
+    safety_score: number;
+    bottleneck: string;
+  }>;
+  safest_route: {
+    name: string;
+    reason: string;
+    step_by_step: string[];
+  };
+  recommendations: string[];
+  route_points: Array<{
+    route_name: string;
+    label: string;
+    status: '안전' | '주의' | '위험';
+    x: number;
+    y: number;
+    note: string;
+  }>;
+}
+
 function toKoreanThermalText(value: unknown, fallback: string, maxLength = 80): string {
   const raw = typeof value === 'string' ? value : '';
   const normalized = raw
@@ -114,6 +159,33 @@ function toKoreanThermalText(value: unknown, fallback: string, maxLength = 80): 
     .replace(/winter/gi, '겨울')
     .replace(/heat gain/gi, '열유입')
     .replace(/heat loss/gi, '열손실')
+    .replace(/[A-Za-z]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const base = normalized || fallback;
+  if (base.length <= maxLength) return base;
+  return `${base.slice(0, maxLength)}...`;
+}
+
+function toKoreanFireText(value: unknown, fallback: string, maxLength = 80): string {
+  const raw = typeof value === 'string' ? value : '';
+  const normalized = raw
+    .replace(/safe/gi, '안전')
+    .replace(/caution/gi, '주의')
+    .replace(/danger/gi, '위험')
+    .replace(/northwest/gi, '북서')
+    .replace(/northeast/gi, '북동')
+    .replace(/southwest/gi, '남서')
+    .replace(/southeast/gi, '남동')
+    .replace(/north/gi, '북')
+    .replace(/south/gi, '남')
+    .replace(/east/gi, '동')
+    .replace(/west/gi, '서')
+    .replace(/seconds/gi, '초')
+    .replace(/second/gi, '초')
+    .replace(/minutes/gi, '분')
+    .replace(/minute/gi, '분')
     .replace(/[A-Za-z]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -322,6 +394,165 @@ function normalizeThermalAnalysis(input: unknown): ThermalAnalysis {
   };
 }
 
+function normalizeFireAnalysis(input: unknown): FireAnalysis {
+  const data = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const wallRaw = Array.isArray(data.wall_material_assessment) ? data.wall_material_assessment : [];
+  const smokeRaw = (data.smoke_spread && typeof data.smoke_spread === 'object'
+    ? data.smoke_spread
+    : {}) as Record<string, unknown>;
+  const ventRaw = (data.ventilation_assessment && typeof data.ventilation_assessment === 'object'
+    ? data.ventilation_assessment
+    : {}) as Record<string, unknown>;
+  const routesRaw = Array.isArray(data.evacuation_routes) ? data.evacuation_routes : [];
+  const safestRaw = (data.safest_route && typeof data.safest_route === 'object'
+    ? data.safest_route
+    : {}) as Record<string, unknown>;
+  const recommendationsRaw = Array.isArray(data.recommendations) ? data.recommendations : [];
+  const routePointsRaw = Array.isArray(data.route_points) ? data.route_points : [];
+  const timelineRaw = Array.isArray(smokeRaw.timeline) ? smokeRaw.timeline : [];
+
+  const wall_material_assessment = wallRaw.map((item, idx) => {
+    const wall = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    return {
+      zone: toKoreanFireText(wall.zone, `구역 ${idx + 1}`, 24),
+      material: toKoreanFireText(wall.material, '재질 정보 없음', 24),
+      fire_resistance: toKoreanFireText(wall.fire_resistance, '내화성 정보 없음', 24),
+      risk_note: toKoreanFireText(wall.risk_note, '위험도 설명 없음', 80),
+    };
+  });
+
+  const timeline = timelineRaw.map((item, idx) => {
+    const point = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    const minuteRaw = typeof point.minute === 'number' ? point.minute : Number(point.minute);
+    return {
+      minute: Number.isFinite(minuteRaw) ? Math.max(0, Math.round(minuteRaw)) : (idx + 1) * 2,
+      affected_zones: toKoreanFireText(point.affected_zones, '영향 구역 정보 없음', 80),
+    };
+  });
+
+  const evacuation_routes = routesRaw.map((item, idx) => {
+    const route = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    const estimatedRaw = typeof route.estimated_time_sec === 'number'
+      ? route.estimated_time_sec
+      : Number(route.estimated_time_sec);
+    const scoreRaw = typeof route.safety_score === 'number' ? route.safety_score : Number(route.safety_score);
+    return {
+      name: toKoreanFireText(route.name, `대피 경로 ${idx + 1}`, 24),
+      path: toKoreanFireText(route.path, '경로 정보 없음', 80),
+      estimated_time_sec: Number.isFinite(estimatedRaw) ? Math.max(0, Math.round(estimatedRaw)) : 120,
+      safety_score: Number.isFinite(scoreRaw) ? Math.max(0, Math.min(100, Math.round(scoreRaw))) : 60,
+      bottleneck: toKoreanFireText(route.bottleneck, '병목 구간 정보 없음', 60),
+    };
+  });
+
+  const route_points = routePointsRaw
+    .map((item, idx) => {
+      const point = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+      const statusRaw = typeof point.status === 'string' ? point.status : '';
+      const status: '안전' | '주의' | '위험' =
+        statusRaw === '안전' || statusRaw === '주의' || statusRaw === '위험'
+          ? statusRaw
+          : idx % 3 === 0
+            ? '안전'
+            : idx % 3 === 1
+              ? '주의'
+              : '위험';
+      const xRaw = typeof point.x === 'number' ? point.x : Number(point.x);
+      const yRaw = typeof point.y === 'number' ? point.y : Number(point.y);
+
+      return {
+        route_name: toKoreanFireText(point.route_name, evacuation_routes[0]?.name || '추천 경로', 24),
+        label: toKoreanFireText(point.label, `지점 ${idx + 1}`, 20),
+        status,
+        x: Number.isFinite(xRaw) ? Math.max(2, Math.min(98, xRaw)) : [20, 36, 52, 66, 80][idx % 5],
+        y: Number.isFinite(yRaw) ? Math.max(2, Math.min(98, yRaw)) : [74, 62, 52, 40, 26][idx % 5],
+        note: toKoreanFireText(point.note, '세부 설명 없음', 80),
+      };
+    });
+
+  const predictedSpeedRaw = typeof smokeRaw.predicted_speed_mps === 'number'
+    ? smokeRaw.predicted_speed_mps
+    : Number(smokeRaw.predicted_speed_mps);
+
+  const riskSource = typeof data.fire_risk_level === 'string' ? data.fire_risk_level : '';
+  const fire_risk_level: FireAnalysis['fire_risk_level'] =
+    riskSource === '낮음' || riskSource === '보통' || riskSource === '높음'
+      ? riskSource
+      : '보통';
+
+  const recommendations = recommendationsRaw
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => toKoreanFireText(item, '개선 권장 사항 없음', 90))
+    .filter(Boolean);
+
+  const safest_step_by_step = Array.isArray(safestRaw.step_by_step)
+    ? safestRaw.step_by_step
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => toKoreanFireText(item, '대피 단계 정보 없음', 60))
+    : [];
+
+  const fallbackRoutes = evacuation_routes.length > 0
+    ? evacuation_routes
+    : [{
+      name: '기본 대피 경로',
+      path: '주출입구에서 가장 가까운 계단실을 통해 1층 외부 출구로 이동',
+      estimated_time_sec: 140,
+      safety_score: 65,
+      bottleneck: '계단실 입구 병목 가능',
+    }];
+
+  const fallbackRoutePoints = route_points.length > 0
+    ? route_points
+    : [
+      { route_name: fallbackRoutes[0].name, label: '출발', status: '주의' as const, x: 18, y: 78, note: '현재 층 시작 지점' },
+      { route_name: fallbackRoutes[0].name, label: '계단실', status: '안전' as const, x: 43, y: 58, note: '방화구획 경유' },
+      { route_name: fallbackRoutes[0].name, label: '외부출구', status: '안전' as const, x: 78, y: 26, note: '최종 대피 지점' },
+    ];
+
+  return {
+    fire_risk_level,
+    wall_material_assessment,
+    ventilation_assessment: {
+      smoke_exhaust_present: typeof ventRaw.smoke_exhaust_present === 'boolean' ? ventRaw.smoke_exhaust_present : false,
+      pressure_zones: toKoreanFireText(ventRaw.pressure_zones, '압력 구역 정보 없음', 70),
+      spread_factor: toKoreanFireText(ventRaw.spread_factor, '확산 요인 정보 없음', 70),
+      detail: toKoreanFireText(ventRaw.detail, '환기 상세 정보 없음', 90),
+    },
+    smoke_spread: {
+      predicted_speed_mps: Number.isFinite(predictedSpeedRaw) ? Math.max(0.1, Math.min(5, Number(predictedSpeedRaw.toFixed(2)))) : 0.8,
+      major_direction: toKoreanFireText(smokeRaw.major_direction, '주요 확산 방향 정보 없음', 40),
+      timeline: timeline.length > 0
+        ? timeline
+        : [
+          { minute: 2, affected_zones: '발화 구역 주변 복도' },
+          { minute: 5, affected_zones: '중앙 홀 및 인접 실' },
+          { minute: 8, affected_zones: '계단실 접근 구간' },
+        ],
+    },
+    evacuation_routes: fallbackRoutes,
+    safest_route: {
+      name: toKoreanFireText(safestRaw.name, fallbackRoutes[0].name, 30),
+      reason: toKoreanFireText(safestRaw.reason, '연기 확산 방향과 반대이며 병목 가능성이 낮아 상대적으로 안전함', 90),
+      step_by_step: safest_step_by_step.length > 0
+        ? safest_step_by_step
+        : [
+          '현재 위치에서 가장 가까운 방화구획 통로로 이동',
+          '계단실 방향으로 우회하여 하향 이동',
+          '1층 외부 출구를 통해 건물 밖 안전지대로 대피',
+        ],
+    },
+    recommendations:
+      recommendations.length > 0
+        ? recommendations
+        : [
+          '복도와 계단실 경계에 연기 차단 구획 보강',
+          '배연 설비 자동 제어 연동 점검',
+          '피난 유도 표지 가시성 강화',
+        ],
+    route_points: fallbackRoutePoints,
+  };
+}
+
 export interface GeneralAnalysis {
   project_type: string;
   summary: string;
@@ -463,6 +694,14 @@ export async function checkThermalEfficiency(
 ): Promise<ThermalAnalysis> {
   const result = await requestJson<unknown>('/api/thermal', { imageData, mimeType });
   return normalizeThermalAnalysis(result);
+}
+
+export async function checkFireSafety(
+  imageData: string,
+  mimeType: string,
+): Promise<FireAnalysis> {
+  const result = await requestJson<unknown>('/api/fire', { imageData, mimeType });
+  return normalizeFireAnalysis(result);
 }
 
 export async function chatWithAgent(

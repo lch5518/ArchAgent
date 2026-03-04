@@ -25,6 +25,13 @@ import {
   getJobSnapshot,
   markTaskFailed,
 } from './queue/jobStore';
+import {
+  createLocalJobSnapshot,
+  enqueueLocalAnalysisTasks,
+  findLocalDedupeJobId,
+  getLocalJobSnapshot,
+  saveLocalDedupeJobId,
+} from './queue/localFallback';
 import {ANALYSIS_TASK_TYPES} from './queue/types';
 
 dotenv.config({path: '.env.local'});
@@ -41,8 +48,21 @@ const distDir = path.resolve(__dirname, '..', 'dist');
 
 app.use(express.json({limit: '25mb'}));
 
-app.get('/api/health', (_req, res) => {
-  res.json({ok: true});
+async function isRedisAvailable(): Promise<boolean> {
+  try {
+    await ensureRedisAvailable();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+app.get('/api/health', async (_req, res) => {
+  const redisReady = await isRedisAvailable();
+  res.json({
+    ok: true,
+    queueMode: redisReady ? 'redis' : 'memory',
+  });
 });
 
 app.post('/api/jobs/analyze-all', async (req, res) => {
@@ -52,41 +72,58 @@ app.post('/api/jobs/analyze-all', async (req, res) => {
       return res.status(400).json({error: 'imageData is required.'});
     }
 
-    try {
-      await ensureRedisAvailable();
-    } catch {
-      return res.status(503).json({error: '분석 대기열에 연결할 수 없습니다. Redis 상태를 확인해 주세요.'});
-    }
-
+    const redisReady = await isRedisAvailable();
     const dedupeHash = makeDedupeHash(imageData, mimeType);
-    const dedupedJobId = await findDedupeJobId(dedupeHash);
-    if (dedupedJobId) {
-      const existing = await getJobSnapshot(dedupedJobId);
-      if (existing) {
-        return res.status(202).json({
-          jobId: dedupedJobId,
-          status: 'queued',
-          analysisKeys: ANALYSIS_TASK_TYPES,
-          pollUrl: `/api/jobs/${dedupedJobId}`,
-        });
+
+    if (redisReady) {
+      const dedupedJobId = await findDedupeJobId(dedupeHash);
+      if (dedupedJobId) {
+        const existing = await getJobSnapshot(dedupedJobId);
+        if (existing) {
+          return res.status(202).json({
+            jobId: dedupedJobId,
+            status: 'queued',
+            analysisKeys: ANALYSIS_TASK_TYPES,
+            pollUrl: `/api/jobs/${dedupedJobId}`,
+          });
+        }
+      }
+    } else {
+      const dedupedJobId = findLocalDedupeJobId(dedupeHash);
+      if (dedupedJobId) {
+        const existing = getLocalJobSnapshot(dedupedJobId);
+        if (existing) {
+          return res.status(202).json({
+            jobId: dedupedJobId,
+            status: 'queued',
+            analysisKeys: ANALYSIS_TASK_TYPES,
+            pollUrl: `/api/jobs/${dedupedJobId}`,
+          });
+        }
       }
     }
 
     const jobId = randomUUID();
-    await createJobSnapshot(jobId);
 
-    try {
-      await enqueueAnalysisTasks(jobId, imageData, mimeType);
-      await saveDedupeJobId(dedupeHash, jobId);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '분석 작업을 대기열에 등록하지 못했습니다.';
-      await Promise.all(
-        ANALYSIS_TASK_TYPES.map((analysisType) =>
-          markTaskFailed(jobId, analysisType, message),
-        ),
-      );
-      return res.status(500).json({error: message});
+    if (redisReady) {
+      await createJobSnapshot(jobId);
+      try {
+        await enqueueAnalysisTasks(jobId, imageData, mimeType);
+        await saveDedupeJobId(dedupeHash, jobId);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : '분석 작업을 대기열에 등록하지 못했습니다.';
+        await Promise.all(
+          ANALYSIS_TASK_TYPES.map((analysisType) =>
+            markTaskFailed(jobId, analysisType, message),
+          ),
+        );
+        return res.status(500).json({error: message});
+      }
+    } else {
+      createLocalJobSnapshot(jobId);
+      saveLocalDedupeJobId(dedupeHash, jobId);
+      enqueueLocalAnalysisTasks(jobId, imageData, mimeType);
     }
 
     return res.status(202).json({
@@ -106,7 +143,15 @@ app.post('/api/jobs/analyze-all', async (req, res) => {
 app.get('/api/jobs/:jobId', async (req, res) => {
   try {
     const {jobId} = req.params;
-    const snapshot = await getJobSnapshot(jobId);
+    let snapshot = null;
+    try {
+      snapshot = await getJobSnapshot(jobId);
+    } catch {
+      snapshot = null;
+    }
+    if (!snapshot) {
+      snapshot = getLocalJobSnapshot(jobId);
+    }
     if (!snapshot) {
       return res.status(404).json({error: '작업을 찾을 수 없습니다.'});
     }

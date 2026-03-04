@@ -12,6 +12,7 @@ ArchAgent는 건축 도면 이미지를 업로드하면 Gemini 기반으로 설�
 
 프론트엔드는 Vite + React + TypeScript, 백엔드는 Express + `@google/genai`로 구성되어 있습니다.
 Gemini 분석 4종(일반/휠체어/일조/화재)은 Redis + BullMQ 큐로 비동기 처리됩니다.
+Redis가 연결되지 않으면 서버 내부 메모리 백그라운드 실행으로 자동 fallback 됩니다.
 
 ## 사전 준비
 
@@ -35,11 +36,13 @@ cp .env.example .env.local
 
 ## 서버 실행 방법
 
-### 1) Redis 실행 (필수)
+### 1) Redis 실행 (권장)
 
 ```bash
 docker compose up -d redis
 ```
+
+Redis를 띄우지 않아도 앱은 동작하지만, 이 경우 작업 상태는 메모리 기반으로만 유지됩니다.
 
 ### 2) 개발 모드 (프론트/백엔드/워커 분리 실행)
 

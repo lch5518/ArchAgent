@@ -4,13 +4,17 @@ function getApiUrl(path: string): string {
   return `${apiBase}${path}`;
 }
 
-async function requestJson<T>(path: string, body: unknown): Promise<T> {
+async function requestApi<T>(
+  path: string,
+  options: { method?: 'GET' | 'POST'; body?: unknown } = {},
+): Promise<T> {
+  const method = options.method || 'POST';
   let response: Response;
   try {
     response = await fetch(getApiUrl(path), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      method,
+      headers: method === 'GET' ? undefined : { 'Content-Type': 'application/json' },
+      body: method === 'GET' ? undefined : JSON.stringify(options.body ?? {}),
     });
   } catch {
     throw new Error('백엔드 서버에 연결할 수 없습니다. `npm run dev:server` 실행 상태를 확인해 주세요.');
@@ -44,6 +48,14 @@ async function requestJson<T>(path: string, body: unknown): Promise<T> {
   }
 
   return payload as T;
+}
+
+async function requestPostJson<T>(path: string, body: unknown): Promise<T> {
+  return requestApi<T>(path, { method: 'POST', body });
+}
+
+async function requestGetJson<T>(path: string): Promise<T> {
+  return requestApi<T>(path, { method: 'GET' });
 }
 
 export interface WheelchairAnalysis {
@@ -571,6 +583,38 @@ export interface GeneralAnalysis {
   improvement_actions: string[];
 }
 
+export type AnalysisTaskType = 'general' | 'wheelchair' | 'thermal' | 'fire';
+export type AnalysisTaskStatus = 'queued' | 'running' | 'completed' | 'failed';
+export type AnalysisOverallStatus = 'queued' | 'running' | 'partial_completed' | 'completed' | 'failed';
+
+export interface AnalysisTaskState<T> {
+  status: AnalysisTaskStatus;
+  startedAt: string | null;
+  finishedAt: string | null;
+  error: string | null;
+  result: T | null;
+}
+
+export interface AnalysisJobCreateResponse {
+  jobId: string;
+  status: 'queued';
+  analysisKeys: AnalysisTaskType[];
+  pollUrl: string;
+}
+
+export interface AnalysisJobStatusResponse {
+  jobId: string;
+  overallStatus: AnalysisOverallStatus;
+  createdAt: string;
+  updatedAt: string;
+  tasks: {
+    general: AnalysisTaskState<GeneralAnalysis>;
+    wheelchair: AnalysisTaskState<WheelchairAnalysis>;
+    thermal: AnalysisTaskState<ThermalAnalysis>;
+    fire: AnalysisTaskState<FireAnalysis>;
+  };
+}
+
 function fallbackGeneralAnalysis(summary: string): GeneralAnalysis {
   return {
     project_type: '건축 도면',
@@ -666,7 +710,7 @@ export async function analyzeDrawing(
   imageData: string,
   mimeType: string,
 ): Promise<GeneralAnalysis> {
-  const result = await requestJson<{ analysis: GeneralAnalysis | string }>('/api/analyze', { imageData, mimeType });
+  const result = await requestPostJson<{ analysis: GeneralAnalysis | string }>('/api/analyze', { imageData, mimeType });
   const analysis = result.analysis;
 
   if (typeof analysis === 'string') {
@@ -684,7 +728,7 @@ export async function checkWheelchairAccessibility(
   imageData: string,
   mimeType: string,
 ): Promise<WheelchairAnalysis> {
-  const result = await requestJson<unknown>('/api/wheelchair', { imageData, mimeType });
+  const result = await requestPostJson<unknown>('/api/wheelchair', { imageData, mimeType });
   return normalizeWheelchairAnalysis(result);
 }
 
@@ -692,7 +736,7 @@ export async function checkThermalEfficiency(
   imageData: string,
   mimeType: string,
 ): Promise<ThermalAnalysis> {
-  const result = await requestJson<unknown>('/api/thermal', { imageData, mimeType });
+  const result = await requestPostJson<unknown>('/api/thermal', { imageData, mimeType });
   return normalizeThermalAnalysis(result);
 }
 
@@ -700,8 +744,45 @@ export async function checkFireSafety(
   imageData: string,
   mimeType: string,
 ): Promise<FireAnalysis> {
-  const result = await requestJson<unknown>('/api/fire', { imageData, mimeType });
+  const result = await requestPostJson<unknown>('/api/fire', { imageData, mimeType });
   return normalizeFireAnalysis(result);
+}
+
+export async function createAnalysisJob(
+  imageData: string,
+  mimeType: string,
+): Promise<AnalysisJobCreateResponse> {
+  return requestPostJson<AnalysisJobCreateResponse>('/api/jobs/analyze-all', { imageData, mimeType });
+}
+
+export async function getAnalysisJobStatus(
+  jobId: string,
+): Promise<AnalysisJobStatusResponse> {
+  const raw = await requestGetJson<{
+    jobId: string;
+    overallStatus: AnalysisOverallStatus;
+    createdAt: string;
+    updatedAt: string;
+    tasks: Record<AnalysisTaskType, AnalysisTaskState<unknown>>;
+  }>(`/api/jobs/${jobId}`);
+
+  return {
+    ...raw,
+    tasks: {
+      general: raw.tasks.general
+        ? {...raw.tasks.general, result: raw.tasks.general.result ? normalizeGeneralAnalysis(raw.tasks.general.result) : null}
+        : {status: 'queued', startedAt: null, finishedAt: null, error: null, result: null},
+      wheelchair: raw.tasks.wheelchair
+        ? {...raw.tasks.wheelchair, result: raw.tasks.wheelchair.result ? normalizeWheelchairAnalysis(raw.tasks.wheelchair.result) : null}
+        : {status: 'queued', startedAt: null, finishedAt: null, error: null, result: null},
+      thermal: raw.tasks.thermal
+        ? {...raw.tasks.thermal, result: raw.tasks.thermal.result ? normalizeThermalAnalysis(raw.tasks.thermal.result) : null}
+        : {status: 'queued', startedAt: null, finishedAt: null, error: null, result: null},
+      fire: raw.tasks.fire
+        ? {...raw.tasks.fire, result: raw.tasks.fire.result ? normalizeFireAnalysis(raw.tasks.fire.result) : null}
+        : {status: 'queued', startedAt: null, finishedAt: null, error: null, result: null},
+    },
+  };
 }
 
 export async function chatWithAgent(
@@ -709,6 +790,6 @@ export async function chatWithAgent(
   history: Array<{ role: string; content: string }>,
   imageData?: { data: string; mimeType: string },
 ): Promise<string> {
-  const result = await requestJson<{ response: string }>('/api/chat', { message, history, imageData });
+  const result = await requestPostJson<{ response: string }>('/api/chat', { message, history, imageData });
   return result.response || '죄송합니다. 답변을 생성하지 못했습니다.';
 }

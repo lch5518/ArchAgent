@@ -13,7 +13,6 @@ import {
   ShieldAlert,
   Route,
   Wind,
-  Maximize2,
   Send,
   FileText,
   Layout,
@@ -28,7 +27,18 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
-import { analyzeDrawing, chatWithAgent, checkFireSafety, checkWheelchairAccessibility, checkThermalEfficiency, type FireAnalysis, type GeneralAnalysis, type WheelchairAnalysis, type ThermalAnalysis } from './services/gemini';
+import {
+  chatWithAgent,
+  createAnalysisJob,
+  getAnalysisJobStatus,
+  type AnalysisJobStatusResponse,
+  type AnalysisTaskStatus,
+  type AnalysisTaskType,
+  type FireAnalysis,
+  type GeneralAnalysis,
+  type ThermalAnalysis,
+  type WheelchairAnalysis,
+} from './services/gemini';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -42,10 +52,22 @@ interface Message {
   timestamp: Date;
 }
 
+type AnalysisTab = 'general' | 'wheelchair' | 'thermal' | 'fire';
+
+const FINAL_JOB_STATES = new Set<AnalysisJobStatusResponse['overallStatus']>([
+  'completed',
+  'partial_completed',
+  'failed',
+]);
+
+const POLL_INTERVAL_MS = 1500;
+
 export default function App() {
   const [image, setImage] = useState<string | null>(null);
   const [mimeType, setMimeType] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<AnalysisJobStatusResponse | null>(null);
   const [analysis, setAnalysis] = useState<GeneralAnalysis | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [wheelchairData, setWheelchairData] = useState<WheelchairAnalysis | null>(null);
@@ -56,14 +78,148 @@ export default function App() {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
-  const [activeTab, setActiveTab] = useState<'general' | 'wheelchair' | 'thermal' | 'fire'>('general');
+  const [activeTab, setActiveTab] = useState<AnalysisTab>('general');
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollingTimerRef = useRef<number | null>(null);
+  const currentJobIdRef = useRef<string | null>(null);
+  const completionMessageSentRef = useRef(false);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    return () => {
+      if (pollingTimerRef.current !== null) {
+        window.clearInterval(pollingTimerRef.current);
+      }
+    };
+  }, []);
+
+  const getTaskStatus = (type: AnalysisTaskType): AnalysisTaskStatus | null => {
+    return jobStatus?.tasks[type]?.status || null;
+  };
+
+  const getTaskError = (type: AnalysisTaskType): string | null => {
+    return jobStatus?.tasks[type]?.error || null;
+  };
+
+  const getTaskStatusLabel = (type: AnalysisTaskType): string => {
+    const status = getTaskStatus(type);
+    if (status === 'queued') return '대기 중';
+    if (status === 'running') return '분석 중';
+    if (status === 'completed') return '완료';
+    if (status === 'failed') return '실패';
+    return '미실행';
+  };
+
+  const isTaskLoading = (type: AnalysisTaskType): boolean => {
+    const status = getTaskStatus(type);
+    return status === 'queued' || status === 'running';
+  };
+
+  const stopPolling = () => {
+    if (pollingTimerRef.current !== null) {
+      window.clearInterval(pollingTimerRef.current);
+      pollingTimerRef.current = null;
+    }
+  };
+
+  const resetAnalysisData = () => {
+    setAnalysis(null);
+    setAnalysisError(null);
+    setWheelchairData(null);
+    setThermalData(null);
+    setFireData(null);
+    setJobStatus(null);
+  };
+
+  const applyJobStatus = (status: AnalysisJobStatusResponse) => {
+    setJobStatus(status);
+    if (status.tasks.general.result) setAnalysis(status.tasks.general.result);
+    if (status.tasks.wheelchair.result) setWheelchairData(status.tasks.wheelchair.result);
+    if (status.tasks.thermal.result) setThermalData(status.tasks.thermal.result);
+    if (status.tasks.fire.result) setFireData(status.tasks.fire.result);
+
+    const generalError = status.tasks.general.error;
+    if (generalError) {
+      setAnalysisError(generalError);
+    }
+
+    if (FINAL_JOB_STATES.has(status.overallStatus)) {
+      setIsAnalyzing(false);
+      stopPolling();
+      if (!completionMessageSentRef.current) {
+        const failedCount = (['general', 'wheelchair', 'thermal', 'fire'] as AnalysisTaskType[])
+          .filter((type) => status.tasks[type].status === 'failed')
+          .length;
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'agent',
+            content:
+              failedCount > 0
+                ? `분석 작업이 완료되었습니다. 일부 항목(${failedCount}개)은 실패하여 탭에서 오류 메시지를 확인해 주세요.`
+                : '4개 분석 작업이 모두 완료되었습니다. 탭에서 결과를 확인해 주세요.',
+            timestamp: new Date(),
+          },
+        ]);
+        completionMessageSentRef.current = true;
+      }
+    }
+  };
+
+  const pollAnalysisJob = async (targetJobId: string) => {
+    try {
+      const status = await getAnalysisJobStatus(targetJobId);
+      if (currentJobIdRef.current !== targetJobId) {
+        return;
+      }
+      applyJobStatus(status);
+    } catch (error) {
+      console.error(error);
+      if (currentJobIdRef.current !== targetJobId) {
+        return;
+      }
+      setIsAnalyzing(false);
+      stopPolling();
+      setAnalysisError(error instanceof Error ? error.message : '작업 상태를 조회하지 못했습니다.');
+    }
+  };
+
+  const startAnalyzeJob = async (imgData: string, type: string) => {
+    stopPolling();
+    completionMessageSentRef.current = false;
+    currentJobIdRef.current = null;
+    setJobId(null);
+    setIsAnalyzing(true);
+    resetAnalysisData();
+    setActiveTab('general');
+
+    try {
+      const created = await createAnalysisJob(imgData, type);
+      setJobId(created.jobId);
+      currentJobIdRef.current = created.jobId;
+      setMessages([
+        {
+          role: 'agent',
+          content: '도면 분석 작업을 큐에 등록했습니다. 탭별 결과가 준비되는 대로 자동 반영됩니다.',
+          timestamp: new Date(),
+        },
+      ]);
+
+      await pollAnalysisJob(created.jobId);
+      pollingTimerRef.current = window.setInterval(() => {
+        void pollAnalysisJob(created.jobId);
+      }, POLL_INTERVAL_MS);
+    } catch (error) {
+      console.error(error);
+      setIsAnalyzing(false);
+      setAnalysisError(error instanceof Error ? error.message : '분석 작업 등록 중 오류가 발생했습니다.');
+    }
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -73,106 +229,9 @@ export default function App() {
         const base64 = event.target?.result as string;
         setImage(base64);
         setMimeType(file.type);
-        setAnalysis(null);
-        setAnalysisError(null);
-        setWheelchairData(null);
-        setThermalData(null);
-        setFireData(null);
-        handleAnalyze(base64, file.type);
+        void startAnalyzeJob(base64, file.type);
       };
       reader.readAsDataURL(file);
-    }
-  };
-
-  const handleAnalyze = async (imgData: string, type: string) => {
-    setIsAnalyzing(true);
-    try {
-      const result = await analyzeDrawing(imgData, type);
-      setAnalysis(result);
-      setAnalysisError(null);
-      setMessages([{
-        role: 'agent',
-        content: "도면 분석이 완료되었습니다. 왼쪽 패널에서 상세 분석 내용을 확인하실 수 있습니다. '휠체어 접근성 체크' 버튼을 눌러 상세 데이터를 추출할 수도 있습니다.",
-        timestamp: new Date()
-      }]);
-    } catch (error) {
-      console.error(error);
-      setAnalysis(null);
-      setAnalysisError(error instanceof Error ? error.message : "분석 중 오류가 발생했습니다.");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  const handleWheelchairCheck = async () => {
-    if (!image) return;
-    setIsAnalyzing(true);
-    setActiveTab('wheelchair');
-    try {
-      const data = await checkWheelchairAccessibility(image, mimeType);
-      setWheelchairData(data);
-      setMessages(prev => [...prev, {
-        role: 'agent',
-        content: "휠체어 접근성 데이터 추출이 완료되었습니다. 상세 표를 확인해 주세요.",
-        timestamp: new Date()
-      }]);
-    } catch (error) {
-      console.error(error);
-      setMessages(prev => [...prev, {
-        role: 'agent',
-        content: "휠체어 접근성 데이터 추출 중 오류가 발생했습니다.",
-        timestamp: new Date()
-      }]);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  const handleThermalCheck = async () => {
-    if (!image) return;
-    setIsAnalyzing(true);
-    setActiveTab('thermal');
-    try {
-      const data = await checkThermalEfficiency(image, mimeType);
-      setThermalData(data);
-      setMessages(prev => [...prev, {
-        role: 'agent',
-        content: "일조량 및 열효율 분석이 완료되었습니다. 상세 데이터를 확인해 주세요.",
-        timestamp: new Date()
-      }]);
-    } catch (error) {
-      console.error(error);
-      setMessages(prev => [...prev, {
-        role: 'agent',
-        content: "열효율 분석 중 오류가 발생했습니다.",
-        timestamp: new Date()
-      }]);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  const handleFireCheck = async () => {
-    if (!image) return;
-    setIsAnalyzing(true);
-    setActiveTab('fire');
-    try {
-      const data = await checkFireSafety(image, mimeType);
-      setFireData(data);
-      setMessages(prev => [...prev, {
-        role: 'agent',
-        content: "화재 확산/대피 분석이 완료되었습니다. 가장 안전한 대피 경로를 확인해 주세요.",
-        timestamp: new Date()
-      }]);
-    } catch (error) {
-      console.error(error);
-      setMessages(prev => [...prev, {
-        role: 'agent',
-        content: "화재 확산 분석 중 오류가 발생했습니다.",
-        timestamp: new Date()
-      }]);
-    } finally {
-      setIsAnalyzing(false);
     }
   };
 
@@ -225,18 +284,18 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-4">
+          {jobId && (
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              Job {jobId.slice(0, 8)}
+            </span>
+          )}
           <button
             onClick={() => {
               // Using the user-provided sample floor plan
               const sampleUrl = "https://storage.googleapis.com/archagent/sample_img/sample.PNG";
               setImage(sampleUrl);
               setMimeType("image/png");
-              setAnalysis(null);
-              setAnalysisError(null);
-              setWheelchairData(null);
-              setThermalData(null);
-              setFireData(null);
-              handleAnalyze(sampleUrl, "image/png");
+              void startAnalyzeJob(sampleUrl, "image/png");
             }}
             disabled={isAnalyzing}
             className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors disabled:opacity-50"
@@ -246,7 +305,8 @@ export default function App() {
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors"
+            disabled={isAnalyzing}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors disabled:opacity-50"
           >
             <Upload size={16} />
             도면 업로드
@@ -482,7 +542,7 @@ export default function App() {
                       <FileText size={16} className="text-slate-400" />
                       AI 분석 리포트
                     </h2>
-                    {isAnalyzing && activeTab === 'general' && <Loader2 size={14} className="animate-spin text-slate-400" />}
+                    {isTaskLoading('general') && <Loader2 size={14} className="animate-spin text-slate-400" />}
                   </div>
 
                   {analysis ? (
@@ -600,7 +660,7 @@ export default function App() {
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
                       <FileText size={24} className="mb-2 opacity-50" />
-                      <p className="text-xs font-medium">도면을 업로드하면 AI가 법규 및 설계를 분석합니다.</p>
+                      <p className="text-xs font-medium">도면 업로드 후 일반 분석이 자동으로 시작됩니다.</p>
                     </div>
                   )}
                 </div>
@@ -612,15 +672,8 @@ export default function App() {
                       휠체어 접근성 준수 데이터
                     </h2>
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={handleWheelchairCheck}
-                        disabled={!image || isAnalyzing}
-                        className="flex items-center gap-2 px-3 py-1 bg-emerald-600 text-white rounded-md text-[10px] font-bold uppercase hover:bg-emerald-700 transition-colors disabled:opacity-50"
-                      >
-                        <CheckCircle2 size={12} />
-                        체크 실행
-                      </button>
-                      {isAnalyzing && activeTab === 'wheelchair' && <Loader2 size={14} className="animate-spin text-emerald-600" />}
+                      <span className="text-[10px] font-bold uppercase text-slate-500">{getTaskStatusLabel('wheelchair')}</span>
+                      {isTaskLoading('wheelchair') && <Loader2 size={14} className="animate-spin text-emerald-600" />}
                     </div>
                   </div>
 
@@ -707,7 +760,9 @@ export default function App() {
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
                       <CheckCircle2 size={24} className="mb-2 opacity-50" />
-                      <p className="text-xs font-medium">상단의 '휠체어 접근성 체크' 버튼을 눌러 데이터를 추출하세요.</p>
+                      <p className="text-xs font-medium">
+                        {getTaskError('wheelchair') || '업로드 후 자동으로 휠체어 접근성 분석이 진행됩니다.'}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -719,15 +774,8 @@ export default function App() {
                       일조량 및 열효율 분석
                     </h2>
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={handleThermalCheck}
-                        disabled={!image || isAnalyzing}
-                        className="flex items-center gap-2 px-3 py-1 bg-amber-600 text-white rounded-md text-[10px] font-bold uppercase hover:bg-amber-700 transition-colors disabled:opacity-50"
-                      >
-                        <Sun size={12} />
-                        체크 실행
-                      </button>
-                      {isAnalyzing && activeTab === 'thermal' && <Loader2 size={14} className="animate-spin text-amber-600" />}
+                      <span className="text-[10px] font-bold uppercase text-slate-500">{getTaskStatusLabel('thermal')}</span>
+                      {isTaskLoading('thermal') && <Loader2 size={14} className="animate-spin text-amber-600" />}
                     </div>
                   </div>
 
@@ -840,7 +888,9 @@ export default function App() {
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
                       <Sun size={24} className="mb-2 opacity-50" />
-                      <p className="text-xs font-medium">우측의 '체크 실행' 버튼을 눌러 분석을 시작하세요.</p>
+                      <p className="text-xs font-medium">
+                        {getTaskError('thermal') || '업로드 후 자동으로 일조/열효율 분석이 진행됩니다.'}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -852,15 +902,8 @@ export default function App() {
                       화재 확산/대피 분석
                     </h2>
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={handleFireCheck}
-                        disabled={!image || isAnalyzing}
-                        className="flex items-center gap-2 px-3 py-1 bg-rose-600 text-white rounded-md text-[10px] font-bold uppercase hover:bg-rose-700 transition-colors disabled:opacity-50"
-                      >
-                        <Flame size={12} />
-                        체크 실행
-                      </button>
-                      {isAnalyzing && activeTab === 'fire' && <Loader2 size={14} className="animate-spin text-rose-600" />}
+                      <span className="text-[10px] font-bold uppercase text-slate-500">{getTaskStatusLabel('fire')}</span>
+                      {isTaskLoading('fire') && <Loader2 size={14} className="animate-spin text-rose-600" />}
                     </div>
                   </div>
 
@@ -1026,7 +1069,9 @@ export default function App() {
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
                       <Flame size={24} className="mb-2 opacity-50" />
-                      <p className="text-xs font-medium">우측의 '체크 실행' 버튼을 눌러 화재 확산 경로와 대피로를 분석하세요.</p>
+                      <p className="text-xs font-medium">
+                        {getTaskError('fire') || '업로드 후 자동으로 화재 확산/대피 분석이 진행됩니다.'}
+                      </p>
                     </div>
                   )}
                 </div>
